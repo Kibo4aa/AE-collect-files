@@ -171,10 +171,10 @@ class CheckTree(ttk.Frame):
         super().__init__(master)
         self.tree = ttk.Treeview(self, columns=[c for c in columns[1:]], height=height, selectmode="extended")
         self.tree.heading("#0", text=columns[0], anchor="w")
-        self.tree.column("#0", width=widths[0], anchor="w", stretch=True)
-        for i, c in enumerate(columns[1:], start=1):
+        self.tree.column("#0", width=widths[0], minwidth=60, anchor="w", stretch=True)
+        for i, c in enumerate(columns[1:], start=1):   # semua kolom ikut melebar/menyempit bersama jendela
             self.tree.heading(c, text=c, anchor="w")
-            self.tree.column(c, width=widths[i], anchor="w", stretch=i == len(columns) - 1)
+            self.tree.column(c, width=widths[i], minwidth=50, anchor="w", stretch=True)
         ys = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=ys.set)
         self.tree.grid(row=0, column=0, sticky="nsew")
@@ -249,9 +249,9 @@ class InfoTree(ttk.Frame):
     def __init__(self, master, columns, widths, height=12):
         super().__init__(master)
         self.tree = ttk.Treeview(self, columns=columns, show="headings", height=height)
-        for i, (c, w) in enumerate(zip(columns, widths)):
+        for c, w in zip(columns, widths):              # semua kolom ikut melebar/menyempit bersama jendela
             self.tree.heading(c, text=c, anchor="w")
-            self.tree.column(c, width=w, anchor="w", stretch=i == len(columns) - 1)
+            self.tree.column(c, width=w, minwidth=50, anchor="w", stretch=True)
         ys = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=ys.set)
         self.tree.grid(row=0, column=0, sticky="nsew")
@@ -506,7 +506,7 @@ class App:
             (self.opt_presets, _("Ikut animation preset (.ffx) yang\nnamanya sama dengan efek yang di-rename")),
         ]
         for var, text in opts:
-            ttk.Checkbutton(right, text=text, variable=var).pack(anchor="w", pady=4)
+            ttk.Checkbutton(right, text=text, variable=var).pack(anchor="w", pady=2)
 
         # Tab 2: plugin
         tab2 = ttk.Frame(self.nb, padding=6)
@@ -568,7 +568,7 @@ class App:
                         value="auto", variable=self.var_batch_scope).pack(side="left", padx=4)
         ttk.Radiobutton(rs, text=_("Semua comp"), value="all", variable=self.var_batch_scope).pack(side="left", padx=4)
         self.batch_tree = InfoTree(tabb, [_("Project"), _("Lokasi"), _("Comp"), _("Status"), _("Hasil")],
-                                   self._w(200, 280, 170, 300, 220), height=8)
+                                   self._w(170, 220, 150, 260, 170), height=8)
         self.batch_tree.pack(fill="both", expand=True, pady=4)
 
         tab6 = ttk.Frame(self.nb, padding=6)
