@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import __version__, dialogs, dnd, sendto, theme, updater
+from . import __version__, dialogs, dnd, menus, sendto, theme, updater
 from .i18n import LANGS, _, get_language, set_language, system_language
 
 APP_TITLE = "Collect Files Plus"
@@ -398,8 +398,6 @@ class App:
     def _apply_theme(self) -> None:
         """Tema + font sesuai bahasa + ukuran baris tabel. Dipanggil saat mulai, ganti tema, ganti bahasa."""
         self.theme_name = theme.apply(self.root, self.var_theme.get(), self.scale)
-        if self.theme_name:
-            theme.menus_dark(self.theme_name == "dark")
         theme.apply_fonts(self.root, get_language())
         style = ttk.Style(self.root)
         try:  # baris tabel ikut membesar di layar high-DPI dan untuk huruf Jepang
@@ -609,34 +607,29 @@ class App:
         """Menu File / Pengaturan / Bantuan. Di Windows & Linux berupa baris tombol bertema (menu bar
         bawaan Windows selalu putih); di macOS menu bar sistem di atas layar."""
         dark = self.theme_name == "dark"
-
-        def sep(menu) -> None:          # garis pemisah buatan Tk terlihat putih di tema gelap
-            if not (dark and sys.platform == "win32"):
-                menu.add_separator()
-
-        bar = tk.Menu(self.root, tearoff=0)
-        m_file = tk.Menu(bar, tearoff=0)
+        bar = self._new_menu()
+        m_file = self._new_menu(bar)
         m_file.add_command(label=_("Buka project..."), accelerator="Ctrl+O", command=self.choose_aep)
         m_file.add_command(label=_("Tambah project ke Batch..."), command=self.batch_add_files)
         m_file.add_command(label=_("Tambah folder ke Batch..."), command=self.batch_add_folder)
-        sep(m_file)
+        m_file.add_separator()
         m_file.add_command(label=_("Buka folder hasil"), command=self.open_result)
         m_file.add_command(label=_("Buka laporan terakhir"), command=self.open_last_report)
-        sep(m_file)
+        m_file.add_separator()
         m_file.add_command(label=_("Keluar"), command=self.on_close)
         bar.add_cascade(label=_("File"), menu=m_file)
 
-        m_set = tk.Menu(bar, tearoff=0)
-        m_lang = tk.Menu(m_set, tearoff=0)
+        m_set = self._new_menu(bar)
+        m_lang = self._new_menu(m_set)
         for code, name in LANGS.items():
             m_lang.add_radiobutton(label=name, value=code, variable=self.var_lang, command=self._on_lang_menu)
         m_set.add_cascade(label="Bahasa / Language / 言語", menu=m_lang)
-        m_theme = tk.Menu(m_set, tearoff=0)
+        m_theme = self._new_menu(m_set)
         follow = _("Ikuti sistem") if sys.platform == "darwin" else _("Ikuti Windows")
         for code, label in (("system", follow), ("light", _("Terang")), ("dark", _("Gelap"))):
             m_theme.add_radiobutton(label=label, value=code, variable=self.var_theme, command=self._on_theme_menu)
         m_set.add_cascade(label=_("Tema"), menu=m_theme)
-        sep(m_set)
+        m_set.add_separator()
         m_set.add_checkbutton(label=_("Cek update saat aplikasi dibuka"), variable=self.var_auto_update,
                               command=lambda: self._save_settings(None))
         if sendto.available():
@@ -644,20 +637,20 @@ class App:
                                   command=self._on_sendto_menu)
         bar.add_cascade(label=_("Pengaturan"), menu=m_set)
 
-        m_help = tk.Menu(bar, tearoff=0)
+        m_help = self._new_menu(bar)
         m_help.add_command(label=_("Cara pakai"), accelerator="F1", command=self.open_readme)
         m_help.add_command(label=_("Cek update..."), command=lambda: self.check_updates(manual=True))
         m_help.add_command(label=_("Halaman GitHub"), command=lambda: webbrowser.open(GITHUB_URL))
-        sep(m_help)
+        m_help.add_separator()
         m_help.add_command(label=_("Tentang Collect Files Plus"), command=self.show_about)
         bar.add_cascade(label=_("Bantuan"), menu=m_help)
 
-        if self.theme_name:
+        if self.theme_name or not self.native_menus:
             for menu in (bar, m_file, m_set, m_lang, m_theme, m_help):
                 theme.style_menu(menu, dark)
         self.menu_frame = None
         self.menu_buttons: List = []
-        if sys.platform == "darwin":
+        if self.native_menus:
             self.root.configure(menu=bar)
         else:
             self.menu_frame = ttk.Frame(self.root, padding=(self.px(4), self.px(2), self.px(4), 0))
@@ -669,8 +662,24 @@ class App:
                 self.menu_buttons.append((button, menu))
         self.menubar = bar
 
+    @property
+    def native_menus(self) -> bool:
+        """macOS: menu sistem (sudah ikut mode gelap). Windows & Linux: menu bertema buatan sendiri."""
+        return sys.platform == "darwin"
+
+    def _new_menu(self, parent=None):
+        if self.native_menus:
+            return tk.Menu(parent if parent is not None else self.root, tearoff=0)
+        return menus.FlyoutMenu(self.root, scale=self.scale, on_outside=self._menu_outside)
+
     def _post_menu(self, menu, button) -> None:
-        """Buka menu drop-down tepat di bawah tombolnya."""
+        """Buka menu drop-down tepat di bawah tombolnya (klik lagi: tutup)."""
+        if getattr(menu, "is_open", False):
+            menu.unpost()
+            return
+        for _b, other in self.menu_buttons:
+            if other is not menu and getattr(other, "is_open", False):
+                other.unpost()
         try:
             x, y = button.winfo_rootx(), button.winfo_rooty() + button.winfo_height()
             menu.tk_popup(x, y)
@@ -681,6 +690,18 @@ class App:
                 menu.grab_release()
             except Exception:  # noqa: BLE001
                 pass
+
+    def _menu_outside(self, closed, x: int, y: int) -> bool:
+        """Menu ditutup karena klik di luar. Kalau yang diklik tombol menu lain, buka menu itu."""
+        try:
+            widget = self.root.winfo_containing(x, y)
+        except Exception:  # noqa: BLE001
+            return False
+        for button, menu in self.menu_buttons:
+            if widget is button and menu is not closed:
+                self.root.after_idle(lambda m=menu, b=button: self._post_menu(m, b))
+                return True
+        return False
 
     def _post_menu_key(self, index: int) -> str:
         if 0 <= index < len(self.menu_buttons):
@@ -1159,16 +1180,16 @@ class App:
         it = self._batch_item(iid)
         state = "normal" if it is not None and it.result is not None else "disabled"
         if self.ctx_menu is None:
-            self.ctx_menu = tk.Menu(self.root, tearoff=0)
+            self.ctx_menu = self._new_menu()
+            if not self.native_menus:
+                self.ctx_menu.on_outside = None
         menu = self.ctx_menu
-        dark = self.theme_name == "dark"
-        if self.theme_name:
-            theme.style_menu(menu, dark)
+        if self.theme_name or not self.native_menus:
+            theme.style_menu(menu, self.theme_name == "dark")
         menu.delete(0, "end")
         menu.add_command(label=_("Buka folder hasil"), command=lambda: self.batch_open(iid), state=state)
         menu.add_command(label=_("Buka laporan"), command=lambda: self.batch_open(iid, report=True), state=state)
-        if not (dark and sys.platform == "win32"):
-            menu.add_separator()
+        menu.add_separator()
         menu.add_command(label=_("Hapus dari daftar"), command=self.batch_remove_selected)
         try:
             menu.tk_popup(event.x_root, event.y_root)

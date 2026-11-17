@@ -354,29 +354,38 @@ def test_gui_dark_theme_menus_and_dialogs(gui, monkeypatch):
     """Tema gelap: menu bar dari tombol bertema, menu drop-down gelap, kotak pesan bertema (bukan putih)."""
     gui, mods = gui
     monkeypatch.setattr(gui.theme, "apply", lambda root, mode, scale=1.0: "light" if mode == "system" else mode)
-    calls = []
-    monkeypatch.setattr(gui.theme, "menus_dark", lambda dark: calls.append(dark))
     shown = []
     monkeypatch.setattr(gui.dialogs, "show", lambda root, title, text, kind="showinfo", dark=False, scale=1.0:
                         shown.append((kind, dark)) or True)
     gui.save_settings({"theme": "dark", "lang": "en"})
     root = mods["tkinter"].Tk()
     app = gui.App(root)
-    assert app.theme_name == "dark" and calls == [True]
+    assert app.theme_name == "dark"
     assert app.menubar.kw["background"] == gui.theme.MENU_COLORS["dark"]["background"]
     assert app.menubar.kw["relief"] == "flat" and app.menubar.kw["borderwidth"] == 0
     assert [b.kw["text"] for b, _m in app.menu_buttons] == ["File", "Settings", "Help"]
     assert app.menu_frame in app._frames and "menu" not in root.kw   # bukan menu bar bawaan (putih)
     button, menu = app.menu_buttons[0]
     app._post_menu(menu, button)
-    assert menu.popped == (0, 20)                                  # tepat di bawah tombol "File"
+    assert menu.popped == (0, 20) and menu.is_open                 # tepat di bawah tombol "File"
+    assert all(c.kw["background"] == "#2c2c2c" for c in menu.rows[0][1])   # baris menu gelap
+    app._post_menu(menu, button)                                   # klik tombol lagi: tutup
+    assert not menu.is_open
+    # menu terbuka, lalu tombol "Settings" diklik: menu File tutup, menu Settings terbuka
+    app._post_menu(menu, button)
+    settings_button, settings_menu = app.menu_buttons[1]
+    root.winfo_containing = lambda x, y: settings_button
+    menu._press(type("E", (), {"x_root": 600, "y_root": 600})())
+    root.after_calls.pop()()
+    assert not menu.is_open and settings_menu.is_open
+    settings_menu.unpost()
     app.open_last_report()
     assert shown == [("showinfo", True)] and not mods["tkinter.messagebox"].log
     assert app._message("askyesno", "?") is True
 
     _submenu(_menu_with(app, "Theme"), "Theme").invoke("Light")
     root.after_calls.pop()()
-    assert app.theme_name == "light" and calls[-1] is False
+    assert app.theme_name == "light"
     assert app.menubar.kw["background"] == gui.theme.MENU_COLORS["light"]["background"]
     app.open_last_report()
     assert shown[-1] == ("showinfo", False)
@@ -775,6 +784,48 @@ def test_real_tk_themed_dialog(real_root):
         root.after(300, lambda: dialogs.current.destroy())          # ditutup lewat tombol X
         assert dialogs.show(root, "Collect Files Plus", "Selesai.", "showinfo", dark=True) is True
         assert answers == [True, True] and dialogs.current is None
+    finally:
+        _clear(root)
+
+
+def test_real_tk_flyout_menu(real_root):
+    """Menu bertema dengan Tk asli: tampil, submenu, pilih item, Escape."""
+    import tkinter as tk
+    from collect_files_plus import menus
+    root = real_root
+    _clear(root)
+    try:
+        var = tk.StringVar(root, value="a")
+        ran = []
+        top = menus.FlyoutMenu(root)
+        sub = menus.FlyoutMenu(root)
+        sub.add_radiobutton(label="A", value="a", variable=var)
+        sub.add_radiobutton(label="B", value="b", variable=var, command=lambda: ran.append("B"))
+        top.add_command(label="Open", accelerator="Ctrl+O", command=lambda: ran.append("open"))
+        top.add_separator()
+        top.add_cascade(label="Choose", menu=sub)
+        top.tk_popup(40, 40)
+        root.update()
+        assert top.win.winfo_viewable() and top.win.winfo_reqwidth() > 50
+        top._hover(2)
+        root.update()
+        assert sub.is_open and sub.win.winfo_viewable()
+        assert sub.win.winfo_rootx() >= top.win.winfo_rootx() + top.win.winfo_width() - 10
+        sub._click(1)
+        root.update()
+        assert var.get() == "b" and ran == ["B"] and not top.is_open and not sub.is_open
+        top.tk_popup(40, 40)
+        root.update()
+        top._key("<Down>")
+        top._key("<Return>")
+        root.update()
+        assert ran == ["B", "open"] and not top.is_open
+        top.tk_popup(40, 40)
+        root.update()
+        top._key("<Escape>")
+        root.update()
+        assert not top.is_open
+        top.destroy()
     finally:
         _clear(root)
 

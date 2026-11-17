@@ -93,29 +93,78 @@ def main() -> int:
         time.sleep(0.25)
 
     def shot_menu(name, index, submenu=False):
-        """Menu drop-down yang sedang terbuka (diambil dari thread lain: tk_popup menunggu sampai menu ditutup)."""
+        """Menu drop-down yang sedang terbuka (menu bertema, tidak memblokir)."""
         button, menu = app.menu_buttons[index]
-
-        def worker():
-            time.sleep(0.8)
-            if submenu:
-                key(0x28)                       # panah bawah: item pertama
-                key(0x27)                       # panah kanan: buka submenu
-            time.sleep(0.6)
-            ImageGrab.grab(all_screens=True).save(out / (prefix + name + ".png"))
-            print("saved", name)
-            for _i in range(3 if submenu else 1):
-                key(0x1B)                       # Escape
         root.lift()
         root.attributes("-topmost", True)
         root.focus_force()
         settle(0.3)
-        t = threading.Thread(target=worker)
-        t.start()
         app._post_menu(menu, button)
-        t.join()
+        settle(0.5)
+        if submenu:
+            menu._hover(0)                     # baris pertama: Bahasa / Language / 言語
+            settle(0.5)
+        ImageGrab.grab(all_screens=True).save(out / (prefix + name + ".png"))
+        print("saved", name)
+        menu.unpost()
         root.attributes("-topmost", False)
         settle(0.3)
+
+    def center(widget):
+        return (widget.winfo_rootx() + widget.winfo_width() // 2, widget.winfo_rooty() + widget.winfo_height() // 2)
+
+    def click_at(x, y):
+        user32.SetCursorPos(int(x), int(y))
+        time.sleep(0.15)
+        user32.mouse_event(0x0002, 0, 0, 0, 0)
+        user32.mouse_event(0x0004, 0, 0, 0, 0)
+
+    def input_checks():
+        """Mouse & keyboard sungguhan (bukan panggilan fungsi) pada menu bertema."""
+        from collect_files_plus.i18n import get_language
+        results = {}
+        root.lift()
+        root.attributes("-topmost", True)
+        root.focus_force()
+        settle(0.5)
+        file_button, file_menu = app.menu_buttons[0]
+        set_button, set_menu = app.menu_buttons[1]
+        click_at(*center(file_button))
+        settle(0.7)
+        results["klik File membuka menu"] = file_menu.is_open
+        click_at(*center(set_button))
+        settle(0.7)
+        results["klik Settings saat File terbuka: pindah menu"] = set_menu.is_open and not file_menu.is_open
+        click_at(*center(app.nb))
+        settle(0.6)
+        results["klik di luar menutup menu"] = not set_menu.is_open
+        user32.keybd_event(0x12, 0, 0, 0)       # Alt+F
+        key(0x46)
+        user32.keybd_event(0x12, 0, 2, 0)
+        settle(0.6)
+        results["Alt+F membuka menu File"] = file_menu.is_open
+        key(0x28)
+        settle(0.3)
+        results["panah bawah menyorot item pertama"] = file_menu.active == 0
+        key(0x1B)
+        settle(0.4)
+        results["Escape menutup menu"] = not file_menu.is_open
+        click_at(*center(set_button))
+        settle(0.7)
+        x, y = center(set_menu.rows[0][1][1])
+        user32.SetCursorPos(int(x), int(y))
+        settle(0.8)
+        lang_menu = set_menu.child
+        results["arahkan mouse membuka submenu Bahasa"] = lang_menu is not None and lang_menu.is_open
+        if lang_menu is not None and lang_menu.is_open:
+            click_at(*center(lang_menu.rows[2][1][1]))          # 日本語
+            settle(1.2)
+        results["klik 日本語 mengganti bahasa"] = get_language() == "ja"
+        app.change_language("en")
+        root.attributes("-topmost", False)
+        settle(0.3)
+        print("INPUT-CHECKS", results)
+        return results
 
     def shot_dialog(name, kind, text):
         def capture():
@@ -160,6 +209,8 @@ def main() -> int:
                 app.nb.select(tab)
                 shot("%s-%s-%d-%s" % (theme, lang, tab + 1, label))
         app.change_language("en")
+        if theme == "dark":
+            input_checks()
         shot_menu("%s-menu-file" % theme, 0)
         shot_menu("%s-menu-settings" % theme, 1, submenu=True)
         shot_dialog("%s-dialog-question" % theme, "askyesno",

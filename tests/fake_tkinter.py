@@ -313,8 +313,51 @@ def build():
         def wm_overrideredirect(self, flag=None):
             pass
 
+        overrideredirect = wm_overrideredirect
+
         def wm_geometry(self, g=None):
             self.geom = g
+
+        geometry = wm_geometry
+
+        def withdraw(self):
+            self.shown = False
+
+        def deiconify(self):
+            self.shown = True
+
+        def attributes(self, *a):
+            pass
+
+        def update_idletasks(self):
+            pass
+
+        def lift(self):
+            pass
+
+        def grab_set(self):
+            self.grabbed = True
+
+        def grab_release(self):
+            self.grabbed = False
+
+        def focus_force(self):
+            pass
+
+        def winfo_reqwidth(self):
+            return 200
+
+        def winfo_reqheight(self):
+            return 100
+
+        def winfo_width(self):
+            return 200
+
+        def winfo_screenwidth(self):
+            return 1920
+
+        def winfo_screenheight(self):
+            return 1080
 
     class Progressbar(Widget):
         def start(self, *a):
@@ -376,6 +419,8 @@ def build():
     tk.Text = Text
     tk.Menu = Menu
     tk.Toplevel = Toplevel
+    tk.Frame = type("Frame", (Widget,), {})
+    tk.Label = type("Label", (Widget,), {})
     tk.StringVar = Var
     tk.BooleanVar = Var
     tk.END = "end"

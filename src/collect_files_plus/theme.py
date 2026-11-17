@@ -92,43 +92,6 @@ def style_menu(menu, dark: bool) -> None:
         pass
 
 
-def menus_dark(dark: bool) -> None:
-    """Windows 10 (1809+) / 11: bingkai menu drop-down bawaan Windows ikut gelap/terang.
-    Memakai fungsi uxtheme tanpa nama (ordinal 135/136) yang juga dipakai Notepad++ dkk."""
-    if sys.platform != "win32":
-        return
-    try:
-        import ctypes
-        build = sys.getwindowsversion().build
-        if build < 17763:
-            return
-        ux = ctypes.WinDLL("uxtheme")
-        mode = ux[135]                               # SetPreferredAppMode (1903+) / AllowDarkModeForApp (1809)
-        mode.restype = ctypes.c_int
-        mode.argtypes = [ctypes.c_int]
-        mode((2 if dark else 3) if build >= 18362 else (1 if dark else 0))   # 2 = paksa gelap, 3 = paksa terang
-        flush = ux[136]                              # FlushMenuThemes
-        flush.restype = None
-        flush.argtypes = []
-        flush()
-    except Exception:  # noqa: BLE001
-        pass
-
-
-def _allow_dark_window(hwnd, dark: bool) -> None:
-    try:
-        import ctypes
-        from ctypes import wintypes
-        if sys.getwindowsversion().build < 17763:
-            return
-        allow = ctypes.WinDLL("uxtheme")[133]       # AllowDarkModeForWindow
-        allow.restype = wintypes.BOOL
-        allow.argtypes = [wintypes.HWND, wintypes.BOOL]
-        allow(hwnd, bool(dark))
-    except Exception:  # noqa: BLE001
-        pass
-
-
 def titlebar(root, dark: bool) -> None:
     """Title bar gelap/terang di Windows 10/11 (DwmSetWindowAttribute)."""
     if sys.platform != "win32":
@@ -145,7 +108,6 @@ def titlebar(root, dark: bool) -> None:
         hwnd = user32.GetParent(root.winfo_id())
         if not hwnd:
             return
-        _allow_dark_window(hwnd, dark)
         value = ctypes.c_int(1 if dark else 0)
         for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 11 / Windows 10 lama)
             if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(value), ctypes.sizeof(value)) == 0:

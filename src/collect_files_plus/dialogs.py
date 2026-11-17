@@ -6,10 +6,6 @@ ikon bulat berwarna, teks, dan tombol OK atau Ya/Tidak, dengan title bar gelap/t
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import ttk
-from typing import Optional
-
 from . import theme
 from .i18n import _
 
@@ -21,11 +17,14 @@ ICONS = {
     "askyesno": ("?", "run"),
 }
 
-current: Optional[tk.Toplevel] = None     # dialog yang sedang terbuka (dipakai uji screenshot)
+current = None      # dialog yang sedang terbuka (tk.Toplevel; dipakai test & screenshot)
 
 
 def show(root, title: str, message: str, kind: str = "showinfo", dark: bool = False, scale: float = 1.0) -> bool:
     """Tampilkan pesan dan tunggu sampai ditutup. askyesno -> True kalau "Ya"; lainnya -> True."""
+    import tkinter as tk                     # di sini, bukan di atas: lihat catatan di menus.py
+    from tkinter import ttk
+
     global current
 
     def px(n: float) -> int:
@@ -116,5 +115,5 @@ def show(root, title: str, message: str, kind: str = "showinfo", dark: bool = Fa
 def _has_style(style) -> bool:
     try:
         return bool(style.layout("Accent.TButton"))
-    except tk.TclError:
+    except Exception:  # noqa: BLE001
         return False
