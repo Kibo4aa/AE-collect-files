@@ -5,6 +5,11 @@ name: Screenshots
 
 on:
   workflow_dispatch:
+    inputs:
+      log_images:
+        description: "Juga cetak gambar (base64) di log"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,6 +29,17 @@ jobs:
           python -m pip install -e . pillow
       - name: Screenshots
         run: python packaging/screenshots.py shots
+      - name: Gambar di log (base64)
+        if: inputs.log_images
+        shell: python
+        run: |
+          import base64, pathlib
+          for p in sorted(pathlib.Path("shots").glob("*.png")):
+              data = base64.b64encode(p.read_bytes()).decode()
+              print("@@BEGIN " + p.name)
+              for i in range(0, len(data), 4000):
+                  print("@@" + data[i:i + 4000])
+              print("@@END " + p.name)
       - uses: actions/upload-artifact@v7
         with:
           name: screenshots
