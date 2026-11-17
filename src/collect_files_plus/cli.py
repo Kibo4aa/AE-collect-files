@@ -4,6 +4,7 @@ Contoh:
     collect-files-plus list-comps project.aep
     collect-files-plus analyze project.aep --rq
     collect-files-plus collect project.aep -o D:/Hasil --comp "Main" --reduce
+    collect-files-plus collect a.aep b.aep "D:/Folder Project" -o D:/Hasil     (banyak project)
 """
 
 from __future__ import annotations
@@ -16,29 +17,32 @@ from typing import List, Optional, Sequence, Tuple
 from . import __version__
 
 
-def _scope(aep, args) -> Tuple[Optional[List[int]], str]:
+def _scope_mode(args) -> Tuple[str, Sequence[str]]:
     if args.all:
-        return None, ""
+        return "all", ()
     if args.comp:
-        wanted = set(args.comp)
-        roots = [c for c in aep.comps if c.name in wanted]
-        missing = wanted - {c.name for c in roots}
-        if missing:
-            raise SystemExit("Comp tidak ditemukan: " + ", ".join(sorted(missing)))
-        return [c.id for c in roots], ""
+        return "names", args.comp
     if args.rq:
-        roots = aep.rq_comps()
-        if not roots:
-            raise SystemExit("Render Queue kosong.")
-        return [c.id for c in roots], ""
-    mode, roots = aep.default_roots()
-    if mode == "all":
-        return None, ""
-    return [c.id for c in roots], ""
+        return "rq", ()
+    return "auto", ()
 
 
-def _add_common(p: argparse.ArgumentParser) -> None:
-    p.add_argument("project", type=Path, help="file .aep")
+def _scope(aep, args) -> Tuple[Optional[List[int]], str]:
+    from .batch import resolve_scope
+    mode, names = _scope_mode(args)
+    try:
+        comp_ids, _label = resolve_scope(aep, mode, names)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+    return comp_ids, ""
+
+
+def _add_common(p: argparse.ArgumentParser, multi: bool = False) -> None:
+    if multi:
+        p.add_argument("projects", type=Path, nargs="+", metavar="project",
+                       help="file .aep, boleh lebih dari satu; folder = semua .aep di dalamnya")
+    else:
+        p.add_argument("project", type=Path, help="file .aep")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--comp", action="append", metavar="NAMA",
                    help="comp utama (boleh diulang). Precomp di dalamnya ikut dibaca.")
@@ -103,8 +107,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p_an = sub.add_parser("analyze", help="analisa saja, tidak menyalin apa pun")
     _add_common(p_an)
 
-    p_col = sub.add_parser("collect", help="collect ke folder tujuan")
-    _add_common(p_col)
+    p_col = sub.add_parser("collect", help="collect ke folder tujuan (bisa banyak project sekaligus)")
+    _add_common(p_col, multi=True)
     p_col.add_argument("-o", "--output", type=Path, required=True, help="folder tujuan")
 
     sub.add_parser("gui", help="buka jendela aplikasi")
@@ -117,6 +121,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     from .collector import Cancelled, analyze, collect
     from .project import AepProject
     from .report import build_report
+
+    if args.cmd == "collect":
+        if len(args.projects) > 1 or args.projects[0].is_dir():
+            return _collect_batch(args)
+        args.project = args.projects[0]
 
     if not args.project.is_file():
         print("File tidak ditemukan: %s" % args.project, file=sys.stderr)
@@ -163,6 +172,42 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("PERHATIAN: %s" % res.validation_error, file=sys.stderr)
         return 1
     return 0
+
+
+def _collect_batch(args) -> int:
+    from .batch import collect_many, find_projects
+
+    missing = [p for p in args.projects if not p.exists()]
+    for p in missing:
+        print("Tidak ditemukan: %s" % p, file=sys.stderr)
+    files = find_projects(args.projects)
+    if not files:
+        print("Tidak ada file .aep yang ditemukan.", file=sys.stderr)
+        return 2
+    mode, names = _scope_mode(args)
+    print("Collect %d project ke %s" % (len(files), args.output))
+    tag = {"ok": "OK", "catatan": "CATATAN", "gagal": "GAGAL", "dibatalkan": "DIBATALKAN"}
+
+    def on_item(i, it) -> None:
+        if it.status not in tag:
+            return
+        if sys.stderr.isatty():
+            sys.stderr.write("\r" + " " * 110 + "\r")
+        line = "[%d/%d] %-10s %s" % (i + 1, len(files), tag[it.status], it.path)
+        if it.result is not None:
+            line += "  ->  %s" % it.result.dest_root.name
+        if it.notes:
+            line += "  (%s)" % "; ".join(it.notes)
+        if it.error:
+            line += "\n        %s" % it.error
+        print(line)
+
+    run = collect_many(files, _options(args, args.output, None), mode, names, progress=_progress,
+                       on_item=on_item, include_guesses=args.include_guesses)
+    print(run.headline())
+    if run.summary is not None:
+        print("Ringkasan: %s" % run.summary)
+    return 0 if run.ok and not missing else 1
 
 
 if __name__ == "__main__":

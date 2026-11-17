@@ -60,6 +60,12 @@ jobs:
           $files = Get-ChildItem -Recurse -File "$env:RUNNER_TEMP\smoke-out" | ForEach-Object { $_.FullName }
           $files
           if (-not ($files -match "\(Footage\)")) { throw "footage tidak tercopy" }
+          $proj2 = python packaging\smoke_project.py "$env:RUNNER_TEMP\smoke2"
+          & "$d\collect-files-plus.exe" collect "$proj" "$proj2" -o "$env:RUNNER_TEMP\batch-out"
+          if ($LASTEXITCODE -ne 0) { throw "cli batch gagal" }
+          $dirs = Get-ChildItem -Directory "$env:RUNNER_TEMP\batch-out" | ForEach-Object { $_.Name }
+          $dirs
+          if ($dirs.Count -ne 2) { throw "batch harus menghasilkan 2 folder" }
           $env:COLLECT_FILES_PLUS_AUTOCLOSE_MS = "4000"
           & "$d\collect-files-plus.exe" gui
           if ($LASTEXITCODE -ne 0) { throw "GUI (console) gagal" }
@@ -79,6 +85,9 @@ jobs:
           proj=$(python packaging/smoke_project.py "$RUNNER_TEMP/smoke")
           "$exe" collect "$proj" --all -o "$RUNNER_TEMP/smoke-out"
           find "$RUNNER_TEMP/smoke-out" -type f | tee /dev/stderr | grep -q "(Footage)"
+          proj2=$(python packaging/smoke_project.py "$RUNNER_TEMP/smoke2")
+          "$exe" collect "$proj" "$proj2" -o "$RUNNER_TEMP/batch-out"
+          test "$(find "$RUNNER_TEMP/batch-out" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 2
           COLLECT_FILES_PLUS_AUTOCLOSE_MS=4000 perl -e 'alarm 90; exec @ARGV' "$exe" gui
 
       - name: Zip (Windows)

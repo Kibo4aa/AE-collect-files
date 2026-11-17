@@ -64,8 +64,29 @@ class PluginFile:
 
     def read_entries(self) -> List[PiPLEntry]:
         if self.entries is None:
-            self.entries = read_plugin_pipl(self.target, self.rsrc)
+            key = _entry_key(self)
+            cached = _ENTRY_CACHE.get(key) if key is not None else None
+            if cached is not None:
+                self.entries = cached
+            else:
+                self.entries = read_plugin_pipl(self.target, self.rsrc)
+                if key is not None:
+                    _ENTRY_CACHE[key] = self.entries
         return self.entries
+
+
+# Isi PiPL per file plugin (path + ukuran + waktu ubah). Analisa berikutnya
+# (batch banyak project, atau analisa ulang di GUI) tidak membaca file yang sama lagi.
+_ENTRY_CACHE: Dict[tuple, List[PiPLEntry]] = {}
+
+
+def _entry_key(pf: "PluginFile") -> Optional[tuple]:
+    try:
+        files = pf.rsrc if pf.rsrc else [pf.target]
+        return tuple((os.path.normcase(str(f)), st.st_size, st.st_mtime_ns)
+                     for f in files for st in (f.stat(),))
+    except OSError:
+        return None
 
 
 @dataclass

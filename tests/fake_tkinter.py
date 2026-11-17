@@ -183,7 +183,7 @@ def build():
         def set(self, *a):
             pass
 
-    for name in ("Frame", "Label", "Entry", "Button", "LabelFrame", "Checkbutton"):
+    for name in ("Frame", "Label", "Entry", "Button", "LabelFrame", "Checkbutton", "Radiobutton"):
         setattr(ttk, name, type(name, (Widget,), {}))
     ttk.Scrollbar = Scrollbar
     ttk.Treeview = Treeview
@@ -215,8 +215,10 @@ def build():
     tk.messagebox = messagebox
 
     filedialog.next_open = ""
+    filedialog.next_open_many = ()
     filedialog.next_dir = ""
     filedialog.askopenfilename = lambda **kw: filedialog.next_open
+    filedialog.askopenfilenames = lambda **kw: filedialog.next_open_many
     filedialog.askdirectory = lambda **kw: filedialog.next_dir
 
     messagebox.log = []

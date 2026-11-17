@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import __version__
+from . import __version__, dnd, sendto
 
 APP_TITLE = "Collect Files Plus"
 CHECK_ON = "☑ "
@@ -176,12 +176,19 @@ class InfoTree(ttk.Frame):
     def clear(self) -> None:
         self.tree.delete(*self.tree.get_children())
 
-    def add(self, values) -> None:
-        self.tree.insert("", "end", values=list(values))
+    def add(self, values, iid: Optional[str] = None) -> None:
+        if iid is None:
+            self.tree.insert("", "end", values=list(values))
+        else:
+            self.tree.insert("", "end", iid=iid, values=list(values))
+
+    def set_row(self, iid: str, values) -> None:
+        if iid in self.tree.get_children():
+            self.tree.item(iid, values=list(values))
 
 
 class App:
-    def __init__(self, root: tk.Tk, initial: Optional[str] = None):
+    def __init__(self, root: tk.Tk, initial: Optional[str] = None, batch: Optional[List[str]] = None):
         self.root = root
         self.settings = load_settings()
         self.aep = None
@@ -191,6 +198,9 @@ class App:
         self.events: "queue.Queue[tuple]" = queue.Queue()
         self.worker: Optional[threading.Thread] = None
         self.cancel = threading.Event()
+        self.batch_paths: List[Path] = []
+        self.batch_run = None
+        self.last_folder: Optional[Path] = None
 
         self.scale = ui_scale(root)
         root.title("%s %s" % (APP_TITLE, __version__))
@@ -213,12 +223,19 @@ class App:
         self.opt_skip_off = tk.BooleanVar(value=s.get("skip_disabled", True))
         self.opt_support = tk.BooleanVar(value=s.get("support_files", False))
         self.opt_presets = tk.BooleanVar(value=s.get("presets", False))
+        self.var_batch_scope = tk.StringVar(value=s.get("batch_scope", "auto"))
 
         self._build()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.after(100, self._poll)
+        self.dnd_ok = self._setup_dnd()
+        if self.dnd_ok:
+            self.hint.configure(text="Tip: drag file .aep ke jendela ini. Banyak file atau folder sekaligus "
+                                     "masuk ke tab Batch.")
         if initial:
             root.after(200, self.load_project)
+        if batch:
+            self.add_batch_paths(batch)
 
     # ------------------------------------------------------------ UI
 
@@ -238,6 +255,8 @@ class App:
         ttk.Label(top, text="Folder tujuan").grid(row=1, column=0, sticky="w", **pad)
         ttk.Entry(top, textvariable=self.var_dest).grid(row=1, column=1, sticky="ew", **pad)
         ttk.Button(top, text="Pilih...", command=self.choose_dest).grid(row=1, column=2, **pad)
+        self.hint = ttk.Label(top, text="")
+        self.hint.grid(row=2, column=1, sticky="w", padx=6)
         top.columnconfigure(1, weight=1)
 
         self.nb = ttk.Notebook(self.root)
@@ -305,6 +324,40 @@ class App:
                                 self._w(200, 200, 200, 150, 70, 180))
         self.fx_tree.pack(fill="both", expand=True, padx=6, pady=6)
 
+        # Tab batch: banyak project sekaligus
+        tabb = ttk.Frame(self.nb)
+        self.nb.add(tabb, text="Batch (banyak project)")
+        self.batch_tab = tabb
+        ttk.Label(tabb, text="Collect banyak project sekaligus. Semua hasil masuk ke \"Folder tujuan\" di atas, "
+                             "tiap project ke folder <nama>_Collected sendiri.\nOpsi yang dicentang di tab "
+                             "\"1. Comp & opsi\" dipakai untuk semua project. File .aep atau folder juga bisa "
+                             "di-drag ke jendela ini.", justify="left").pack(anchor="w", padx=6, pady=(6, 0))
+        self.batch_tree = InfoTree(tabb, ["Project", "Lokasi", "Comp", "Status", "Hasil"],
+                                   self._w(200, 300, 200, 300, 200))
+        self.batch_tree.pack(fill="both", expand=True, padx=6, pady=4)
+        rb = ttk.Frame(tabb)
+        rb.pack(fill="x", padx=6)
+        ttk.Button(rb, text="Tambah file .aep...", command=self.batch_add_files).pack(side="left", padx=2)
+        ttk.Button(rb, text="Tambah folder...", command=self.batch_add_folder).pack(side="left", padx=2)
+        ttk.Button(rb, text="Hapus yang dipilih", command=self.batch_remove_selected).pack(side="left", padx=2)
+        ttk.Button(rb, text="Kosongkan", command=self.batch_clear).pack(side="left", padx=2)
+        self.batch_count = ttk.Label(rb, text="")
+        self.batch_count.pack(side="left", padx=12)
+        rs = ttk.Frame(tabb)
+        rs.pack(fill="x", padx=6, pady=(6, 0))
+        ttk.Label(rs, text="Comp yang dibaca:").pack(side="left", padx=2)
+        ttk.Radiobutton(rs, text="Otomatis (Render Queue, kalau kosong comp aktif, kalau tidak ada semua comp)",
+                        value="auto", variable=self.var_batch_scope).pack(side="left", padx=4)
+        ttk.Radiobutton(rs, text="Semua comp", value="all", variable=self.var_batch_scope).pack(side="left", padx=4)
+        rc = ttk.Frame(tabb)
+        rc.pack(fill="x", padx=6, pady=6)
+        self.btn_batch = ttk.Button(rc, text="Collect semua project", command=self.start_batch)
+        self.btn_batch.pack(side="left", padx=2)
+        self.btn_sendto = None
+        if sendto.available():
+            self.btn_sendto = ttk.Button(rc, text=self._sendto_label(), command=self.toggle_sendto)
+            self.btn_sendto.pack(side="right", padx=2)
+
         tab6 = ttk.Frame(self.nb)
         self.nb.add(tab6, text="Log")
         self.log = tk.Text(tab6, height=10, wrap="word")
@@ -369,13 +422,18 @@ class App:
             self.comp_tree.set(iid, int(iid) in ids)
 
     def current_options(self):
-        from .collector import Options
+        opt = self._base_options()
         ids = [int(i) for i in self.comp_tree.checked_ids()]
         all_ids = [int(i) for i in self.comp_tree.tree.get_children()]
-        comp_ids = None if sorted(ids) == sorted(all_ids) else ids
+        opt.comp_ids = None if sorted(ids) == sorted(all_ids) else ids
+        return opt
+
+    def _base_options(self):
+        """Opsi dari kotak centang di tab 1 (tanpa pilihan comp)."""
+        from .collector import Options
         return Options(
             dest_dir=Path(self.var_dest.get().strip() or "."),
-            comp_ids=comp_ids,
+            comp_ids=None,
             collect_footage=self.opt_footage.get(),
             reduce_project=self.opt_reduce.get(),
             collect_fonts=self.opt_fonts.get(),
@@ -423,8 +481,150 @@ class App:
             self._run("collect", self._job_collect, (opt, self._plugin_choices()))
 
     def open_result(self) -> None:
-        if self.result is not None:
-            open_folder(self.result.dest_root)
+        if self.last_folder is not None:
+            open_folder(self.last_folder)
+
+    # ------------------------------------------------- drag & drop, batch
+
+    def _setup_dnd(self) -> bool:
+        try:
+            if not dnd.available() or not hasattr(self.root, "winfo_id"):
+                return False
+            return dnd.enable(self.root, self.on_drop) is not None
+        except Exception:  # noqa: BLE001 - tanpa drag & drop aplikasi tetap jalan
+            return False
+
+    def _busy_now(self) -> bool:
+        if self.worker is not None and self.worker.is_alive():
+            self.var_status.set("Tunggu proses yang sedang berjalan selesai dulu.")
+            return True
+        return False
+
+    def _on_batch_tab(self) -> bool:
+        try:
+            return str(self.nb.select()) == str(self.batch_tab)
+        except Exception:  # noqa: BLE001
+            return False
+
+    def on_drop(self, paths) -> None:
+        """File/folder di-drop ke jendela (atau dikirim lewat ikon Dock di macOS)."""
+        paths = [str(p) for p in paths if p]
+        aeps = [p for p in paths if p.lower().endswith(".aep") and os.path.isfile(p)]
+        dirs = [p for p in paths if os.path.isdir(p)]
+        if not aeps and not dirs:
+            self.var_status.set("Yang di-drop bukan file .aep atau folder.")
+            return
+        if self._busy_now():
+            return
+        if len(aeps) == 1 and not dirs and not self._on_batch_tab():
+            self.var_aep.set(aeps[0])
+            self.load_project()
+        else:
+            self.add_batch_paths(aeps + dirs)
+
+    def _batch_values(self, path: Path, scope: str = "", status: str = "menunggu", result: str = "") -> list:
+        return [path.name, str(path.parent), scope, status, result]
+
+    def _refresh_batch(self) -> None:
+        self.batch_tree.clear()
+        for i, p in enumerate(self.batch_paths):
+            self.batch_tree.add(self._batch_values(p), iid=str(i))
+        n = len(self.batch_paths)
+        self.batch_count.configure(text=("%d project" % n) if n else "")
+
+    def add_batch_paths(self, paths) -> int:
+        if self._busy_now():
+            return 0
+        from .batch import find_projects
+        found = find_projects(paths)
+        known = {os.path.normcase(os.path.abspath(str(p))) for p in self.batch_paths}
+        new = [p for p in found if os.path.normcase(os.path.abspath(str(p))) not in known]
+        self.batch_paths.extend(new)
+        self._refresh_batch()
+        self.nb.select(self.batch_tab)
+        if not self.var_dest.get().strip() and self.batch_paths:
+            try:
+                self.var_dest.set(os.path.commonpath([str(p.parent) for p in self.batch_paths]))
+            except ValueError:
+                pass
+        if not found:
+            self.var_status.set("Tidak ada file .aep yang ditemukan.")
+        else:
+            self.var_status.set("%d project ditambahkan ke daftar batch (total %d)." % (len(new), len(self.batch_paths)))
+        return len(new)
+
+    def batch_add_files(self) -> None:
+        start = self.settings.get("aep_dir") or str(Path.home())
+        paths = filedialog.askopenfilenames(title="Pilih project After Effects (boleh banyak)", initialdir=start,
+                                            filetypes=[("Project After Effects", "*.aep"), ("Semua file", "*.*")])
+        if paths:
+            self.settings["aep_dir"] = str(Path(paths[0]).parent)
+            self.add_batch_paths(list(paths))
+
+    def batch_add_folder(self) -> None:
+        start = self.settings.get("aep_dir") or str(Path.home())
+        path = filedialog.askdirectory(title="Pilih folder berisi project .aep", initialdir=start, mustexist=True)
+        if path:
+            self.add_batch_paths([path])
+
+    def batch_remove_selected(self) -> None:
+        if self._busy_now():
+            return
+        sel = {int(i) for i in self.batch_tree.tree.selection()}
+        self.batch_paths = [p for i, p in enumerate(self.batch_paths) if i not in sel]
+        self._refresh_batch()
+
+    def batch_clear(self) -> None:
+        if self._busy_now():
+            return
+        self.batch_paths = []
+        self._refresh_batch()
+
+    def start_batch(self) -> None:
+        if self._busy_now():
+            return
+        if not self.batch_paths:
+            messagebox.showwarning(APP_TITLE, "Daftar batch masih kosong. Klik \"Tambah file .aep...\" atau "
+                                              "drag file .aep ke jendela ini.")
+            return
+        if not self.var_dest.get().strip():
+            messagebox.showwarning(APP_TITLE, "Pilih folder tujuan dulu.")
+            return
+        opt = self._base_options()
+        self._save_settings(None)
+        paths = list(self.batch_paths)
+        for i, p in enumerate(paths):
+            self.batch_tree.set_row(str(i), self._batch_values(p))
+        self._run("batch", self._job_batch, (paths, opt, self.var_batch_scope.get()))
+
+    def _job_batch(self, arg):
+        from .batch import collect_many
+        paths, opt, scope = arg
+
+        def on_item(i, it) -> None:
+            self.events.put(("item", "batch", (i, self._batch_values(it.path, it.scope, it.status_text,
+                                                                      it.result_name))))
+        return collect_many(paths, opt, scope, progress=self._progress, cancel=self.cancel, on_item=on_item)
+
+    def _sendto_label(self) -> str:
+        return ("Hapus dari menu klik kanan \"Send to\"" if sendto.installed()
+                else "Pasang di menu klik kanan \"Send to\"")
+
+    def toggle_sendto(self) -> None:
+        try:
+            if sendto.installed():
+                sendto.uninstall()
+                messagebox.showinfo(APP_TITLE, "Collect Files Plus sudah dihapus dari menu Send to.")
+            else:
+                sendto.install()
+                messagebox.showinfo(APP_TITLE, "Terpasang.\n\nCara pakai: di Explorer pilih satu atau banyak file "
+                                               ".aep (atau folder), klik kanan > Send to > Collect Files Plus.\n"
+                                               "Windows 11: klik \"Show more options\" dulu untuk melihat Send to.\n\n"
+                                               "Kalau folder aplikasi ini dipindah, pasang ulang dari sini.")
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror(APP_TITLE, "Gagal: %s" % exc)
+        if self.btn_sendto is not None:
+            self.btn_sendto.configure(text=self._sendto_label())
 
     def on_close(self) -> None:
         if self.worker is not None and self.worker.is_alive():
@@ -492,6 +692,9 @@ class App:
                 ev, kind, payload = self.events.get_nowait()
                 if ev == "progress":
                     self.var_status.set(payload)
+                elif ev == "item":
+                    i, values = payload
+                    self.batch_tree.set_row(str(i), values)
                 elif ev == "error":
                     self._busy(False)
                     self._log("ERROR: " + payload)
@@ -517,6 +720,7 @@ class App:
         state = "disabled" if busy else "normal"
         self.btn_analyze.configure(state=state)
         self.btn_collect.configure(state=state)
+        self.btn_batch.configure(state=state)
         self.btn_cancel.configure(state="normal" if busy else "disabled")
         if busy:
             self.progress.start(12)
@@ -534,8 +738,24 @@ class App:
             self._fill_analysis()
             self.var_status.set("Analisa selesai. Cek tab Plugin/Font/Footage, lalu klik Collect.")
             self.nb.select(1 if self.analysis.candidates else 3)
+        elif kind == "batch":
+            run = payload
+            self.batch_run = run
+            self.last_folder = run.dest
+            self.btn_open.configure(state="normal")
+            msg = "Batch selesai: %s\n\nFolder tujuan: %s" % (run.headline(), run.dest)
+            if run.summary is not None:
+                msg += "\nRingkasan: %s" % run.summary.name
+            self._log(msg)
+            for it in run.items:
+                if it.status == "gagal":
+                    self._log("GAGAL %s: %s" % (it.path, it.error))
+            self.var_status.set("Batch selesai: %s" % run.headline())
+            if messagebox.askyesno(APP_TITLE, msg + "\n\nBuka folder tujuan?"):
+                open_folder(run.dest)
         elif kind == "collect":
             self.result = payload
+            self.last_folder = payload.dest_root
             self.btn_open.configure(state="normal")
             msg = "Selesai.\n\nHasil: %s" % payload.dest_root
             if not payload.saved_ok:
@@ -647,10 +867,11 @@ class App:
         s["skip_disabled"] = self.opt_skip_off.get()
         s["support_files"] = self.opt_support.get()
         s["presets"] = self.opt_presets.get()
+        s["batch_scope"] = self.var_batch_scope.get()
         save_settings(s)
 
 
-def main(initial: Optional[str] = None) -> int:
+def main(initial: Optional[str] = None, batch: Optional[List[str]] = None) -> int:
     if sys.platform == "win32":
         try:  # tampilan tajam di layar high-DPI
             import ctypes
@@ -658,14 +879,10 @@ def main(initial: Optional[str] = None) -> int:
         except Exception:  # noqa: BLE001
             pass
     root = tk.Tk()
-    app = App(root, initial)
+    app = App(root, initial, batch)
     if sys.platform == "darwin":
         def open_document(*paths):  # file .aep di-drop ke ikon aplikasi di Dock/Finder
-            for p in paths:
-                if str(p).lower().endswith(".aep"):
-                    app.var_aep.set(str(p))
-                    app.load_project()
-                    break
+            app.on_drop([str(p) for p in paths])
         try:
             root.createcommand("::tk::mac::OpenDocument", open_document)
         except Exception:  # noqa: BLE001

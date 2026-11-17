@@ -66,6 +66,8 @@ class Environment:
     adobe_font_dirs: Optional[List[Path]] = None
     preset_dirs: Optional[List[Path]] = None
     preset_effects_xml: Optional[List[Path]] = None
+    # hasil yang mahal (indeks font) disimpan di sini supaya batch tidak mengulang
+    cache: Dict[str, object] = field(default_factory=dict, repr=False, compare=False)
 
     def installs(self) -> List[Path]:
         if self.ae_installs is None:
@@ -373,8 +375,11 @@ def analyze(aep: AepProject, options: Options, env: Optional[Environment] = None
         _tick(progress, "Membaca daftar font...", cancel)
         names = aep.fonts(comps if options.comp_ids is not None else None)
         if names:
-            index = FontIndex(env.font_dirs, env.font_cache).build(lambda m: _tick(progress, m, cancel))
-            adobe_index = None
+            index = env.cache.get("font_index")
+            if index is None:
+                index = FontIndex(env.font_dirs, env.font_cache).build(lambda m: _tick(progress, m, cancel))
+                env.cache["font_index"] = index
+            adobe_index = env.cache.get("adobe_index")
             for ps in names:
                 face = index.lookup(ps)
                 status = "ada" if face else "tidak-ketemu"
@@ -383,6 +388,7 @@ def analyze(aep: AepProject, options: Options, env: Optional[Environment] = None
                         dirs = env.adobe_font_dirs if env.adobe_font_dirs is not None else adobe_fonts_dirs()
                         dirs = [d for d in dirs if d.is_dir()]
                         adobe_index = FontIndex(dirs, use_cache=False).build() if dirs else FontIndex([], use_cache=False)
+                        env.cache["adobe_index"] = adobe_index
                     if adobe_index.lookup(ps):
                         status = "adobe"
                 an.fonts.append(FontEntry(ps, face, status))

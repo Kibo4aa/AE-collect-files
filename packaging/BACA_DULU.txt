@@ -8,8 +8,8 @@ project After Effects ke satu folder, langsung dari file .aep
 
 CARA PAKAI
 1. Jalankan CollectFilesPlus.exe (Mac: CollectFilesPlus.app).
-   Bisa juga drag file .aep ke ikon CollectFilesPlus.exe.
-2. Pilih file .aep.
+2. Pilih file .aep, atau drag file .aep ke jendela aplikasi
+   (bisa juga ke ikon CollectFilesPlus.exe).
 3. Tab "1. Comp & opsi": centang comp utama yang dipakai.
    Precomp di dalamnya ikut dibaca otomatis.
 4. Klik Analisa, lalu cek tab Plugin / Font / Footage.
@@ -17,6 +17,20 @@ CARA PAKAI
 5. Pilih folder tujuan, lalu klik Collect.
    Di folder hasil ada laporan (_report.txt) yang menjelaskan cara
    memakai hasilnya di komputer lain.
+
+BANYAK PROJECT SEKALIGUS (BATCH)
+- Drag beberapa file .aep (atau folder berisi .aep) ke jendela aplikasi
+  atau ke ikon CollectFilesPlus.exe. Semuanya masuk ke tab
+  "Batch (banyak project)". Klik "Collect semua project".
+- Bisa langsung dari Explorer: di tab Batch klik
+  "Pasang di menu klik kanan Send to". Setelah itu pilih file .aep,
+  klik kanan > Send to > Collect Files Plus
+  (Windows 11: klik "Show more options" dulu).
+- Semua hasil masuk ke Folder tujuan yang sama; tiap project ke folder
+  <nama>_Collected sendiri. Ringkasannya ada di file
+  CollectFilesPlus_batch_....txt di folder tujuan.
+- Satu project gagal tidak menghentikan project lain.
+- Versi command line: collect-files-plus.exe collect a.aep b.aep -o D:\Hasil
 
 CATATAN
 - Windows SmartScreen: klik "More info" lalu "Run anyway"
