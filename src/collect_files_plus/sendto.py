@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
+from .i18n import _
+
 LINK_NAME = "Collect Files Plus.lnk"
 
 _PS_CREATE = r"""
@@ -69,7 +71,7 @@ def install() -> Path:
     """Buat shortcut di folder SendTo. Mengembalikan path shortcut."""
     link = link_path()
     if link is None:
-        raise OSError("Folder SendTo tidak ditemukan (APPDATA kosong).")
+        raise OSError(_("Folder SendTo tidak ditemukan (APPDATA kosong)."))
     link.parent.mkdir(parents=True, exist_ok=True)
     target, args, icon = launch_command()
     env = dict(os.environ, CFP_LNK=str(link), CFP_TARGET=target, CFP_ARGS=args, CFP_ICON=icon,
@@ -79,7 +81,7 @@ def install() -> Path:
                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if proc.returncode != 0 or not link.is_file():
         detail = (proc.stderr or proc.stdout or "").strip()
-        raise OSError("Gagal membuat shortcut Send to. %s" % detail[:400])
+        raise OSError(_("Gagal membuat shortcut Send to. %s") % detail[:400])
     return link
 
 

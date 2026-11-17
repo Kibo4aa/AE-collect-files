@@ -6,6 +6,10 @@ Mengumpulkan footage, font, dan file plugin yang benar-benar dipakai
 project After Effects ke satu folder, langsung dari file .aep
 (After Effects tidak perlu dibuka).
 
+Bahasa aplikasi mengikuti bahasa sistem (Indonesia atau English).
+Bisa diganti kapan saja lewat "Bahasa / Language" di kanan atas.
+English instructions: READ_ME_FIRST.txt
+
 CARA PAKAI
 1. Jalankan CollectFilesPlus.exe (Mac: CollectFilesPlus.app).
 2. Pilih file .aep, atau drag file .aep ke jendela aplikasi

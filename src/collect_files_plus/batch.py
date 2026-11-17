@@ -14,10 +14,11 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from . import __version__
 from . import collector as _collector
+from .i18n import N_, _
 from .collector import Analysis, Cancelled, Environment, Options, Result, analyze, collect
 from .plugins import default_roots, plugin_log_files
 from .project import AepProject
@@ -25,20 +26,30 @@ from .project import AepProject
 ProgressFn = Callable[[str], None]
 
 SCOPE_LABEL = {
-    "auto": "otomatis (Render Queue, kalau kosong comp aktif, kalau tidak ada semua comp)",
-    "rq": "comp di Render Queue",
-    "active": "comp aktif saat project disimpan",
-    "all": "semua comp",
-    "names": "comp dengan nama tertentu",
+    "auto": N_("otomatis (Render Queue, kalau kosong comp aktif, kalau tidak ada semua comp)"),
+    "rq": N_("comp di Render Queue"),
+    "active": N_("comp aktif saat project disimpan"),
+    "all": N_("semua comp"),
+    "names": N_("comp dengan nama tertentu"),
 }
 
 STATUS_LABEL = {
-    "menunggu": "menunggu",
-    "jalan": "sedang diproses...",
+    "menunggu": N_("menunggu"),
+    "jalan": N_("sedang diproses..."),
     "ok": "OK",
-    "catatan": "OK, ada catatan",
-    "gagal": "GAGAL",
-    "dibatalkan": "dibatalkan",
+    "catatan": N_("OK, ada catatan"),
+    "gagal": N_("GAGAL"),
+    "dibatalkan": N_("dibatalkan"),
+}
+
+# catatan per project disimpan sebagai angka, teksnya dibuat saat ditampilkan (ikut bahasa)
+NOTE_TEXT = {
+    "missing": N_("%d footage hilang"),
+    "fonts": N_("%d font tidak ketemu"),
+    "adobe": N_("%d Adobe Fonts (aktifkan di CC)"),
+    "fx": N_("%d efek plugin tidak ketemu"),
+    "guess": N_("%d plugin perkiraan tidak dicopy"),
+    "errors": N_("%d error saat copy"),
 }
 
 # folder yang tidak ikut discan saat menambah folder: auto-save AE dan hasil collect sebelumnya
@@ -75,54 +86,80 @@ def find_projects(paths: Iterable) -> List[Path]:
     return out
 
 
+def scope_parts(aep: AepProject, mode: str = "auto",
+                names: Sequence[str] = ()) -> Tuple[Optional[List[int]], str, List[str], int]:
+    """(comp_ids atau None = semua, jenis: all/names/rq/active, nama comp, jumlah comp project)."""
+    n = len(aep.comps)
+    if mode == "all":
+        return None, "all", [], n
+    if mode == "names":
+        wanted = list(dict.fromkeys(names))
+        roots = [c for c in aep.comps if c.name in set(wanted)]
+        missing = set(wanted) - {c.name for c in roots}
+        if missing:
+            raise ValueError(_("Comp tidak ditemukan: %s") % ", ".join(sorted(missing)))
+        return [c.id for c in roots], "names", [c.name for c in roots], n
+    if mode == "rq":
+        roots = aep.rq_comps()
+        if not roots:
+            raise ValueError(_("Render Queue kosong."))
+        return [c.id for c in roots], "rq", [c.name for c in roots], n
+    if mode == "active":
+        act = aep.active_comp()
+        if act is None:
+            raise ValueError(_("Tidak ada comp aktif yang tersimpan di project ini."))
+        return [act.id], "active", [act.name], n
+    kind, roots = aep.default_roots()
+    if kind == "all":
+        return None, "all", [], n
+    return [c.id for c in roots], kind, [c.name for c in roots], n
+
+
+def scope_label(kind: str, names: Sequence[str], n_comps: int) -> str:
+    if not kind:
+        return ""
+    if kind == "all":
+        return _("semua comp (%d)") % n_comps
+    prefix = {"names": "comp", "rq": "Render Queue", "active": _("comp aktif")}[kind]
+    return prefix + ": " + ", ".join(names)
+
+
 def resolve_scope(aep: AepProject, mode: str = "auto",
                   names: Sequence[str] = ()) -> Tuple[Optional[List[int]], str]:
     """Comp utama yang dibaca. Mengembalikan (comp_ids atau None = semua, keterangan).
 
     mode: auto | rq | active | all | names. ValueError kalau comp yang diminta tidak ada.
     """
-    if mode == "all":
-        return None, "semua comp (%d)" % len(aep.comps)
-    if mode == "names":
-        wanted = list(dict.fromkeys(names))
-        roots = [c for c in aep.comps if c.name in set(wanted)]
-        missing = set(wanted) - {c.name for c in roots}
-        if missing:
-            raise ValueError("Comp tidak ditemukan: " + ", ".join(sorted(missing)))
-        return [c.id for c in roots], "comp: " + ", ".join(c.name for c in roots)
-    if mode == "rq":
-        roots = aep.rq_comps()
-        if not roots:
-            raise ValueError("Render Queue kosong.")
-        return [c.id for c in roots], "Render Queue: " + ", ".join(c.name for c in roots)
-    if mode == "active":
-        act = aep.active_comp()
-        if act is None:
-            raise ValueError("Tidak ada comp aktif yang tersimpan di project ini.")
-        return [act.id], "comp aktif: " + act.name
-    kind, roots = aep.default_roots()
-    if kind == "all":
-        return None, "semua comp (%d)" % len(aep.comps)
-    label = "Render Queue" if kind == "rq" else "comp aktif"
-    return [c.id for c in roots], label + ": " + ", ".join(c.name for c in roots)
+    ids, kind, roots, n = scope_parts(aep, mode, names)
+    return ids, scope_label(kind, roots, n)
 
 
 @dataclass
 class BatchItem:
     path: Path
     status: str = "menunggu"            # menunggu / jalan / ok / catatan / gagal / dibatalkan
-    scope: str = ""
+    scope_kind: str = ""
+    scope_names: List[str] = field(default_factory=list)
+    n_comps: int = 0
     result: Optional[Result] = None
     error: str = ""
-    notes: List[str] = field(default_factory=list)
+    counts: Dict[str, int] = field(default_factory=dict)
+
+    @property
+    def scope(self) -> str:
+        return scope_label(self.scope_kind, self.scope_names, self.n_comps)
+
+    @property
+    def notes(self) -> List[str]:
+        return [_(NOTE_TEXT[k]) % n for k, n in self.counts.items() if n]
 
     @property
     def status_text(self) -> str:
-        text = STATUS_LABEL.get(self.status, self.status)
+        text = _(STATUS_LABEL.get(self.status, self.status))
         if self.status == "catatan" and self.notes:
             return "OK, " + "; ".join(self.notes)
         if self.status == "gagal" and self.error:
-            return "GAGAL: " + self.error
+            return _("GAGAL: %s") % self.error
         return text
 
     @property
@@ -147,35 +184,25 @@ class BatchRun:
     def headline(self) -> str:
         parts = ["%d OK" % self.count("ok")]
         if self.count("catatan"):
-            parts.append("%d ada catatan" % self.count("catatan"))
+            parts.append(_("%d ada catatan") % self.count("catatan"))
         if self.count("gagal"):
-            parts.append("%d gagal" % self.count("gagal"))
+            parts.append(_("%d gagal") % self.count("gagal"))
         if self.count("dibatalkan", "menunggu"):
-            parts.append("%d tidak diproses" % self.count("dibatalkan", "menunggu"))
-        return "%s (dari %d project)" % (", ".join(parts), len(self.items))
+            parts.append(_("%d tidak diproses") % self.count("dibatalkan", "menunggu"))
+        return _("%s (dari %d project)") % (", ".join(parts), len(self.items))
 
 
-def notes_for(an: Analysis, res: Result) -> List[str]:
-    notes: List[str] = []
-    missing = sum(1 for fe in an.footage if not fe.exists)
-    if missing:
-        notes.append("%d footage hilang" % missing)
-    nf = sum(1 for f in an.fonts if f.status == "tidak-ketemu")
-    if nf:
-        notes.append("%d font tidak ketemu" % nf)
-    na = sum(1 for f in an.fonts if f.status == "adobe")
-    if na:
-        notes.append("%d Adobe Fonts (aktifkan di CC)" % na)
+def note_counts(an: Analysis, res: Result) -> Dict[str, int]:
+    counts = {
+        "missing": sum(1 for fe in an.footage if not fe.exists),
+        "fonts": sum(1 for f in an.fonts if f.status == "tidak-ketemu"),
+        "adobe": sum(1 for f in an.fonts if f.status == "adobe"),
+    }
     if an.options.collect_plugins:
-        nx = sum(1 for e in an.plugin_effects if e.candidate is None)
-        if nx:
-            notes.append("%d efek plugin tidak ketemu" % nx)
-        ng = sum(1 for cd in an.candidates if not cd.selected)
-        if ng:
-            notes.append("%d plugin perkiraan tidak dicopy" % ng)
-    if res.errors:
-        notes.append("%d error saat copy" % len(res.errors))
-    return notes
+        counts["fx"] = sum(1 for e in an.plugin_effects if e.candidate is None)
+        counts["guess"] = sum(1 for cd in an.candidates if not cd.selected)
+    counts["errors"] = len(res.errors)
+    return {k: n for k, n in counts.items() if n}
 
 
 def _short_error(exc: BaseException) -> str:
@@ -218,9 +245,9 @@ def collect_many(paths: Sequence, options: Options, scope: str = "auto", comp_na
         sub = (lambda m, _p=prefix: progress(_p + m)) if progress is not None else None
         try:
             if sub is not None:
-                sub("Membaca project...")
+                sub(_("Membaca project..."))
             aep = AepProject(it.path)
-            comp_ids, it.scope = resolve_scope(aep, scope, comp_names)
+            comp_ids, it.scope_kind, it.scope_names, it.n_comps = scope_parts(aep, scope, comp_names)
             opt = dataclasses.replace(options, comp_ids=comp_ids, scope_label="")
             an = analyze(aep, opt, env, progress=sub, cancel=cancel)
             if include_guesses:
@@ -228,13 +255,13 @@ def collect_many(paths: Sequence, options: Options, scope: str = "auto", comp_na
                     cd.selected = True
             res = collect(an, progress=sub, cancel=cancel)
             it.result = res
-            it.notes = notes_for(an, res)
+            it.counts = note_counts(an, res)
             if not res.saved_ok:
                 it.status = "gagal"
-                it.error = ("project hasil gagal dicek (%s); file sudah dicopy, pakai .aep di (Backup)"
-                            % (res.validation_error or "tidak diketahui"))
+                it.error = (_("project hasil gagal dicek (%s); file sudah dicopy, pakai .aep di (Backup)")
+                            % (res.validation_error or _("tidak diketahui")))
             else:
-                it.status = "catatan" if it.notes else "ok"
+                it.status = "catatan" if it.counts else "ok"
         except Cancelled:
             it.status = "dibatalkan"
             emit(i)
@@ -263,28 +290,28 @@ def write_batch_summary(run: BatchRun) -> Path:
     while path.exists():
         path = run.dest / ("CollectFilesPlus_batch_%s (%d).txt" % (time.strftime("%Y%m%d-%H%M%S"), n))
         n += 1
-    tag = {"ok": "[OK]", "catatan": "[CATATAN]", "gagal": "[GAGAL]", "dibatalkan": "[DIBATALKAN]",
-           "menunggu": "[DIBATALKAN]", "jalan": "[?]"}
+    tag = {"ok": "[OK]", "catatan": _("[CATATAN]"), "gagal": _("[GAGAL]"), "dibatalkan": _("[DIBATALKAN]"),
+           "menunggu": _("[DIBATALKAN]"), "jalan": "[?]"}
     lines = [
-        "Collect Files Plus %s - ringkasan batch" % __version__,
-        "Tanggal : %s" % time.strftime("%Y-%m-%d %H:%M"),
-        "Folder  : %s" % run.dest,
-        "Comp    : %s" % SCOPE_LABEL.get(run.scope, run.scope),
-        "Hasil   : %s" % run.headline(),
+        _("Collect Files Plus %s - ringkasan batch") % __version__,
+        _("Tanggal : %s") % time.strftime("%Y-%m-%d %H:%M"),
+        _("Folder  : %s") % run.dest,
+        _("Comp    : %s") % _(SCOPE_LABEL.get(run.scope, run.scope)),
+        _("Hasil   : %s") % run.headline(),
         "",
     ]
     for it in run.items:
         lines.append("%-12s %s" % (tag.get(it.status, it.status), it.path.name))
-        lines.append("             asal    : %s" % it.path)
+        lines.append(_("             asal    : %s") % it.path)
         if it.scope:
-            lines.append("             comp    : %s" % it.scope)
+            lines.append(_("             comp    : %s") % it.scope)
         if it.result is not None:
-            lines.append("             hasil   : %s" % it.result.dest_root)
+            lines.append(_("             hasil   : %s") % it.result.dest_root)
         if it.notes:
-            lines.append("             catatan : %s" % "; ".join(it.notes))
+            lines.append(_("             catatan : %s") % "; ".join(it.notes))
         if it.error:
             lines.append("             error   : %s" % it.error)
         lines.append("")
-    lines.append("Detail tiap project ada di file _report.txt di folder hasilnya masing-masing.")
+    lines.append(_("Detail tiap project ada di file _report.txt di folder hasilnya masing-masing."))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path

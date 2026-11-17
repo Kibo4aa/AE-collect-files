@@ -54,6 +54,8 @@ jobs:
           & "$d\collect-files-plus.exe" analyze tests\data\Property-01.aep --all > "$env:RUNNER_TEMP\analyze.txt"
           if ($LASTEXITCODE -ne 0) { throw "cli analyze gagal" }
           Get-Content "$env:RUNNER_TEMP\analyze.txt" -TotalCount 60
+          & "$d\collect-files-plus.exe" --lang en analyze tests\data\Property-01.aep --all > "$env:RUNNER_TEMP\analyze-en.txt"
+          if (-not (Select-String -Quiet -Path "$env:RUNNER_TEMP\analyze-en.txt" -Pattern "HOW TO USE ON ANOTHER COMPUTER")) { throw "output English tidak ada" }
           $proj = python packaging\smoke_project.py "$env:RUNNER_TEMP\smoke"
           & "$d\collect-files-plus.exe" collect "$proj" --all -o "$env:RUNNER_TEMP\smoke-out"
           if ($LASTEXITCODE -ne 0) { throw "cli collect gagal" }
@@ -82,6 +84,7 @@ jobs:
           "$exe" --version
           "$exe" analyze tests/data/Property-01.aep --all > "$RUNNER_TEMP/analyze.txt"
           head -60 "$RUNNER_TEMP/analyze.txt"
+          "$exe" --lang en analyze tests/data/Property-01.aep --all | grep -q "HOW TO USE ON ANOTHER COMPUTER"
           proj=$(python packaging/smoke_project.py "$RUNNER_TEMP/smoke")
           "$exe" collect "$proj" --all -o "$RUNNER_TEMP/smoke-out"
           find "$RUNNER_TEMP/smoke-out" -type f | tee /dev/stderr | grep -q "(Footage)"
@@ -96,7 +99,7 @@ jobs:
         run: |
           $name = "CollectFilesPlus-v${{ steps.ver.outputs.version }}-${{ matrix.name }}"
           $d = "dist\CollectFilesPlus"
-          Copy-Item packaging\BACA_DULU.txt, LICENSE, NOTICE.md $d
+          Copy-Item packaging\BACA_DULU.txt, packaging\READ_ME_FIRST.txt, LICENSE, NOTICE.md $d
           New-Item -ItemType Directory "$d\jsx" -Force | Out-Null
           Copy-Item jsx\CollectFilesPlus.jsx "$d\jsx\"
           Compress-Archive -Path $d -DestinationPath "dist\$name.zip"
@@ -109,7 +112,7 @@ jobs:
           stage="$RUNNER_TEMP/stage/CollectFilesPlus"
           mkdir -p "$stage/jsx"
           ditto dist/CollectFilesPlus.app "$stage/CollectFilesPlus.app"
-          cp packaging/BACA_DULU.txt LICENSE NOTICE.md "$stage/"
+          cp packaging/BACA_DULU.txt packaging/READ_ME_FIRST.txt LICENSE NOTICE.md "$stage/"
           cp jsx/CollectFilesPlus.jsx "$stage/jsx/"
           ditto -c -k --keepParent "$stage" "dist/$name.zip"
           ls -la "dist/$name.zip"

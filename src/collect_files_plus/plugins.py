@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .pipl import PiPLEntry, read_plugin_pipl, scan_needles
+from .i18n import N_, _
 
 ProgressFn = Callable[[str], None]
 
@@ -25,18 +26,23 @@ STRICT_HOW = {"pipl", "pipl-nama", "isi-file"}
 #: Cara ketemu yang 100% pasti (laporan menandai [OK]).
 CERTAIN_HOW = {"pipl", "pipl-nama"}
 HOW_LABEL = {
-    "pipl": "data PiPL",
-    "pipl-nama": "data PiPL (nama efek sama dengan match name)",
-    "pipl-mirip": "data PiPL (nama efek mirip, bukan persis)",
-    "isi-file": "isi file (data PiPL tidak terbaca, plugin mungkin dikompres)",
-    "isi-file-lemah": "teks di isi file (cocok lemah)",
-    "nama-file": "nama file sama dengan nama efek",
-    "nama-file-mirip": "nama file mirip nama efek",
+    "pipl": N_("data PiPL"),
+    "pipl-nama": N_("data PiPL (nama efek sama dengan match name)"),
+    "pipl-mirip": N_("data PiPL (nama efek mirip, bukan persis)"),
+    "isi-file": N_("isi file (data PiPL tidak terbaca, plugin mungkin dikompres)"),
+    "isi-file-lemah": N_("teks di isi file (cocok lemah)"),
+    "nama-file": N_("nama file sama dengan nama efek"),
+    "nama-file-mirip": N_("nama file mirip nama efek"),
 }
 FALLBACK_BUDGET = 2 * 1024 * 1024 * 1024
 MAX_DEPTH = 10
 _GENERIC_TOKENS = {"adbe", "effect", "effects", "plugin", "plugins", "the", "and", "pseudo"}
 
+
+
+def how_label(how: str) -> str:
+    """Keterangan cara plugin ditemukan, dalam bahasa tampilan."""
+    return _(HOW_LABEL.get(how, how))
 
 @dataclass
 class PluginRoot:
@@ -137,7 +143,7 @@ def _win_registry_paths() -> List[Tuple[str, str]]:
             continue
         for name in ("CommonPluginInstallPath", "PluginInstallPath", "InstallPath"):
             try:
-                val, _ = winreg.QueryValueEx(key, name)
+                val, _kind = winreg.QueryValueEx(key, name)
                 if val:
                     out.append((name + "|" + str(val), ver))
             except OSError:
@@ -344,13 +350,13 @@ def list_plugins(roots: Sequence[PluginRoot], extra_files: Sequence[str] = (),
     seen_dirs: set = set()
     for root in roots:
         if progress:
-            progress("Mendata plugin di " + str(root.folder))
+            progress(_("Mendata plugin di %s") % root.folder)
         _walk_plugins(root.folder, root, out, seen, seen_dirs, 0)
     for raw in extra_files:
         p = Path(raw)
         if not p.exists():
             continue
-        root = PluginRoot(p.parent, "Lainnya/" + p.parent.name, 4)
+        root = PluginRoot(p.parent, _("Lainnya") + "/" + p.parent.name, 4)
         _add(out, seen, p, root)
     return out
 
@@ -376,7 +382,7 @@ def build_plugin_list(effect_hints: Sequence[Tuple[str, str, Sequence[str]]],
         p = Path(raw)
         if p.is_dir() and os.path.normcase(str(p)) not in known:
             known.add(os.path.normcase(str(p)))
-            roots.append(PluginRoot(p, "Lainnya/" + p.name, 3))
+            roots.append(PluginRoot(p, _("Lainnya") + "/" + p.name, 3))
     plugins = list_plugins(roots, log_plugins, progress)
 
     tokens = set()
@@ -408,7 +414,7 @@ def match_effects(plugins: Sequence[PluginFile], needed: Sequence[str],
         if len(found) >= len(need):
             break
         if progress:
-            progress("Membaca plugin %d/%d: %s" % (i + 1, len(plugins), pf.label))
+            progress(_("Membaca plugin %d/%d: %s") % (i + 1, len(plugins), pf.label))
         for en in pf.read_entries():
             if en.match_name in need and en.match_name not in found:
                 found[en.match_name] = Match(pf, "pipl", en.name, en.category)
@@ -444,7 +450,7 @@ def match_effects(plugins: Sequence[PluginFile], needed: Sequence[str],
             for f in files:
                 budget -= _safe_size(f)
                 if progress:
-                    progress("Pencarian cadangan: " + pf.label)
+                    progress(_("Pencarian cadangan: %s") % pf.label)
                 hits = scan_needles(f, pending)
                 for mn, strength in hits.items():
                     if strength == 2 and mn not in found:

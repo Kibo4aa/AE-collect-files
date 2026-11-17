@@ -33,6 +33,22 @@ def build():
         def pack(self, **kw):
             pass
 
+        def destroy(self):
+            self.destroyed = True
+            if self.master is not None and self in getattr(self.master, "children_list", []):
+                self.master.children_list.remove(self)
+
+        def all_texts(self):
+            """Semua teks yang tampil di widget ini dan anak-anaknya (untuk uji bahasa)."""
+            out = []
+            for key in ("text", "title"):
+                if isinstance(self.kw.get(key), str):
+                    out.append(self.kw[key])
+            out.extend(getattr(self, "extra_texts", lambda: [])())
+            for c in self.children_list:
+                out.extend(c.all_texts())
+            return out
+
         def grid(self, **kw):
             pass
 
@@ -107,6 +123,9 @@ def build():
         def see(self, index):
             pass
 
+        def get(self, start, end=None):
+            return self.content  # seperti Tk: get("1.0", "end-1c") = semua teks yang dimasukkan
+
     class Treeview(Widget):
         def __init__(self, master=None, columns=(), height=10, selectmode=None, show=None, **kw):
             super().__init__(master, **kw)
@@ -115,8 +134,12 @@ def build():
             self._n = 0
             self.row_at = None
 
-        def heading(self, *a, **kw):
-            pass
+        def heading(self, col, text="", **kw):
+            self.headings = getattr(self, "headings", {})
+            self.headings[col] = text
+
+        def extra_texts(self):
+            return list(getattr(self, "headings", {}).values())
 
         def column(self, *a, **kw):
             pass
@@ -165,12 +188,26 @@ def build():
             self.selected = 0
 
         def add(self, child, text=""):
-            self.tabs.append(text)
+            self.tabs.append((child, text))
 
         def select(self, idx=None):
             if idx is not None:
                 self.selected = idx
             return self.selected
+
+        def index(self, tab):
+            if isinstance(tab, int):
+                return tab
+            for i, (child, _text) in enumerate(self.tabs):
+                if child is tab:
+                    return i
+            return 0
+
+        def tab_texts(self):
+            return [t for _c, t in self.tabs]
+
+        def extra_texts(self):
+            return self.tab_texts()
 
     class Progressbar(Widget):
         def start(self, *a):
@@ -186,6 +223,29 @@ def build():
     for name in ("Frame", "Label", "Entry", "Button", "LabelFrame", "Checkbutton", "Radiobutton"):
         setattr(ttk, name, type(name, (Widget,), {}))
     ttk.Scrollbar = Scrollbar
+
+    class Combobox(Widget):
+        def __init__(self, master=None, values=(), **kw):
+            super().__init__(master, **kw)
+            self.values = list(values)
+            self.value = ""
+            self.handlers = {}
+
+        def set(self, v):
+            self.value = v
+
+        def get(self):
+            return self.value
+
+        def bind(self, event, fn, *a):
+            self.handlers[event] = fn
+
+        def choose(self, v):
+            """Seperti pengguna memilih item dari daftar."""
+            self.value = v
+            self.handlers["<<ComboboxSelected>>"](None)
+
+    ttk.Combobox = Combobox
     ttk.Treeview = Treeview
     ttk.Notebook = Notebook
     ttk.Progressbar = Progressbar

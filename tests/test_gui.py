@@ -220,6 +220,66 @@ def test_gui_starts_with_batch_list(gui, tmp_path):
     assert app.var_dest.get() == str(a.parent)
 
 
+def test_gui_switch_language_keeps_state(gui, tmp_path, monkeypatch):
+    gui, mods = gui
+    from collect_files_plus import collector, i18n
+    from test_i18n import _indonesian_words
+    mc = make_plugin_tree(tmp_path)
+    env = env_for(tmp_path, plugin_roots=[PluginRoot(mc, "MediaCore", 1)])
+    monkeypatch.setattr(collector, "Environment", lambda: env)
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    assert i18n.get_language() == "id" and app.lang_box.get() == "Bahasa Indonesia"
+    app.var_aep.set(str(make_fx_project(tmp_path)))
+    app.load_project()
+    _finish(app)
+    app.var_dest.set(str(tmp_path / "out"))
+    app.start_analyze()
+    _finish(app)
+    kaca = [i for i, l in app.plugin_tree.labels.items() if l.endswith("Kaca.aex")][0]
+    app.plugin_tree.toggle([kaca])
+    app.batch_paths = [tmp_path / "x.aep"]
+    old_nb = app.nb
+
+    app.lang_box.choose("English")
+    assert i18n.get_language() == "en" and app.nb is not old_nb and old_nb.destroyed
+    assert app.nb.tab_texts()[:3] == ["1. Comps & options", "2. Plugins", "3. Fonts"]
+    assert app.plugin_tree.checked[kaca] is False                 # centang tetap
+    assert all(app.comp_tree.checked.values())
+    assert app.plugin_total.kw["text"] == "2 of 3 plugin files ticked, total %s" % \
+        app.plugin_total.kw["text"].split("total ")[1]
+    assert app.batch_tree.tree.items["0"]["values"][3] == "waiting"
+    assert "Membuka" in app.log.get("1.0", "end-1c")             # isi log lama tetap ada
+    assert app.var_status.get() == "Language changed to English."
+    assert gui.load_settings()["lang"] == "en"
+    texts = root.all_texts()
+    assert "Analyze" in texts and "Collect all projects" in texts
+    assert _indonesian_words(" | ".join(texts)) == []
+
+    app.start_collect()                                        # collect dengan opsi sama -> pakai centang tadi
+    _finish(app)
+    files = files_under(app.result.dest_root)
+    assert not any(f.endswith("Kaca.aex") for f in files)
+    assert (app.result.dest_root / "Efek_effect_list.csv").is_file()
+
+    app.lang_box.choose("Bahasa Indonesia")
+    assert i18n.get_language() == "id" and app.nb.tab_texts()[0] == "1. Comp & opsi"
+
+
+def test_gui_language_defaults(gui, tmp_path, monkeypatch):
+    gui, mods = gui
+    from collect_files_plus import i18n
+    monkeypatch.setenv(i18n.ENV_VAR, "en")
+    gui.App(mods["tkinter"].Tk())                    # pemakai baru -> bahasa sistem
+    assert i18n.get_language() == "en"
+    gui.save_settings({"dest": str(tmp_path)})       # pemakai lama (sebelum ada pilihan bahasa) -> Indonesia
+    gui.App(mods["tkinter"].Tk())
+    assert i18n.get_language() == "id"
+    gui.save_settings({"dest": str(tmp_path), "lang": "en"})
+    app = gui.App(mods["tkinter"].Tk())
+    assert i18n.get_language() == "en" and app.lang_box.get() == "English"
+
+
 def _real_root():
     try:
         import tkinter as tk
@@ -262,6 +322,13 @@ def test_real_tk_smoke(tmp_path, monkeypatch):
         root.update()
         assert app.analysis is not None
         assert len(app.foot_tree.tree.get_children()) >= 4
+        app.change_language("en")                  # bangun ulang widget asli dalam bahasa lain
+        root.update()
+        assert app.nb.tab(0, "text") == "1. Comps & options" and app.lang_box.get() == "English"
+        assert len(app.foot_tree.tree.get_children()) >= 4
+        app.change_language("id")
+        root.update()
+        assert app.nb.tab(0, "text") == "1. Comp & opsi"
         app.start_collect()
         _finish(app)
         root.update()

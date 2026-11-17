@@ -5,6 +5,7 @@ Contoh:
     collect-files-plus analyze project.aep --rq
     collect-files-plus collect project.aep -o D:/Hasil --comp "Main" --reduce
     collect-files-plus collect a.aep b.aep "D:/Folder Project" -o D:/Hasil     (banyak project)
+    collect-files-plus --lang en analyze project.aep                            (output English)
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 from . import __version__
+from .i18n import LANGS, _, set_language, system_language
 
 
 def _scope_mode(args) -> Tuple[str, Sequence[str]]:
@@ -40,26 +42,26 @@ def _scope(aep, args) -> Tuple[Optional[List[int]], str]:
 def _add_common(p: argparse.ArgumentParser, multi: bool = False) -> None:
     if multi:
         p.add_argument("projects", type=Path, nargs="+", metavar="project",
-                       help="file .aep, boleh lebih dari satu; folder = semua .aep di dalamnya")
+                       help=_("file .aep, boleh lebih dari satu; folder = semua .aep di dalamnya"))
     else:
-        p.add_argument("project", type=Path, help="file .aep")
+        p.add_argument("project", type=Path, help=_("file .aep"))
     g = p.add_mutually_exclusive_group()
-    g.add_argument("--comp", action="append", metavar="NAMA",
-                   help="comp utama (boleh diulang). Precomp di dalamnya ikut dibaca.")
-    g.add_argument("--rq", action="store_true", help="comp yang ada di Render Queue")
-    g.add_argument("--all", action="store_true", help="semua comp di project")
-    p.add_argument("--no-footage", action="store_true", help="jangan collect footage")
-    p.add_argument("--no-fonts", action="store_true", help="jangan collect font")
-    p.add_argument("--no-plugins", action="store_true", help="jangan collect plugin")
-    p.add_argument("--include-disabled", action="store_true", help="ikutkan efek yang ikon fx-nya mati")
+    g.add_argument("--comp", action="append", metavar=_("NAMA"),
+                   help=_("comp utama (boleh diulang). Precomp di dalamnya ikut dibaca."))
+    g.add_argument("--rq", action="store_true", help=_("comp yang ada di Render Queue"))
+    g.add_argument("--all", action="store_true", help=_("semua comp di project"))
+    p.add_argument("--no-footage", action="store_true", help=_("jangan collect footage"))
+    p.add_argument("--no-fonts", action="store_true", help=_("jangan collect font"))
+    p.add_argument("--no-plugins", action="store_true", help=_("jangan collect plugin"))
+    p.add_argument("--include-disabled", action="store_true", help=_("ikutkan efek yang ikon fx-nya mati"))
     p.add_argument("--support-files", action="store_true",
-                   help="ikut copy file pendukung plugin (DLL/data di folder yang sama, tanpa plugin lain)")
+                   help=_("ikut copy file pendukung plugin (DLL/data di folder yang sama, tanpa plugin lain)"))
     p.add_argument("--reduce", action="store_true",
-                   help="buang comp & footage yang tidak dipakai dari project hasil (Reduce Project)")
+                   help=_("buang comp & footage yang tidak dipakai dari project hasil (Reduce Project)"))
     p.add_argument("--presets", action="store_true",
-                   help="ikut copy animation preset (.ffx) yang namanya sama dengan efek yang di-rename")
+                   help=_("ikut copy animation preset (.ffx) yang namanya sama dengan efek yang di-rename"))
     p.add_argument("--include-guesses", action="store_true",
-                   help="ikut copy plugin yang hanya ditemukan lewat perkiraan")
+                   help=_("ikut copy plugin yang hanya ditemukan lewat perkiraan"))
 
 
 def _options(args, dest: Path, comp_ids):
@@ -93,25 +95,47 @@ def _safe_streams() -> None:
             pass
 
 
+def _take_lang(argv: List[str]) -> Tuple[List[str], Optional[str]]:
+    """Ambil --lang dari mana pun posisinya (sebelum parser dibuat, supaya --help ikut bahasanya)."""
+    out: List[str] = []
+    lang = None
+    it = iter(argv)
+    for a in it:
+        if a == "--lang":
+            lang = next(it, None)
+        elif a.startswith("--lang="):
+            lang = a.split("=", 1)[1]
+        else:
+            out.append(a)
+    return out, lang
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     _safe_streams()
+    argv, lang = _take_lang(list(sys.argv[1:] if argv is None else argv))
+    if lang is not None and lang not in LANGS:
+        print("--lang: id / en", file=sys.stderr)
+        return 2
+    set_language(lang or system_language())
+
     parser = argparse.ArgumentParser(
         prog="collect-files-plus",
-        description="Kumpulkan footage, font, dan plugin dari project After Effects tanpa membuka AE.")
+        description=_("Kumpulkan footage, font, dan plugin dari project After Effects tanpa membuka AE."))
     parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
+    parser.add_argument("--lang", choices=sorted(LANGS), help=_("bahasa output: id (Indonesia) atau en (English)"))
     sub = parser.add_subparsers(dest="cmd")
 
-    p_list = sub.add_parser("list-comps", help="daftar comp di project")
+    p_list = sub.add_parser("list-comps", help=_("daftar comp di project"))
     p_list.add_argument("project", type=Path)
 
-    p_an = sub.add_parser("analyze", help="analisa saja, tidak menyalin apa pun")
+    p_an = sub.add_parser("analyze", help=_("analisa saja, tidak menyalin apa pun"))
     _add_common(p_an)
 
-    p_col = sub.add_parser("collect", help="collect ke folder tujuan (bisa banyak project sekaligus)")
+    p_col = sub.add_parser("collect", help=_("collect ke folder tujuan (bisa banyak project sekaligus)"))
     _add_common(p_col, multi=True)
-    p_col.add_argument("-o", "--output", type=Path, required=True, help="folder tujuan")
+    p_col.add_argument("-o", "--output", type=Path, required=True, help=_("folder tujuan"))
 
-    sub.add_parser("gui", help="buka jendela aplikasi")
+    sub.add_parser("gui", help=_("buka jendela aplikasi"))
 
     args = parser.parse_args(argv)
     if args.cmd in (None, "gui"):
@@ -128,7 +152,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         args.project = args.projects[0]
 
     if not args.project.is_file():
-        print("File tidak ditemukan: %s" % args.project, file=sys.stderr)
+        print(_("File tidak ditemukan: %s") % args.project, file=sys.stderr)
         return 2
     aep = AepProject(args.project)
 
@@ -141,9 +165,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if c.id in rq:
                 tags.append("Render Queue")
             if act is not None and c.id == act.id:
-                tags.append("aktif")
+                tags.append(_("aktif"))
             if users.get(c.id):
-                tags.append("precomp di %d comp" % users[c.id])
+                tags.append(_("precomp di %d comp") % users[c.id])
             print("%-40s %s" % (c.name, ", ".join(tags)))
         return 0
 
@@ -165,11 +189,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 130
     if sys.stderr.isatty():
         sys.stderr.write("\n")
-    print("Selesai: %s" % res.dest_root)
+    print(_("Selesai: %s") % res.dest_root)
     if res.report:
-        print("Laporan: %s" % res.report)
+        print(_("Laporan: %s") % res.report)
     if not res.saved_ok:
-        print("PERHATIAN: %s" % res.validation_error, file=sys.stderr)
+        print(_("PERHATIAN: %s") % res.validation_error, file=sys.stderr)
         return 1
     return 0
 
@@ -179,14 +203,14 @@ def _collect_batch(args) -> int:
 
     missing = [p for p in args.projects if not p.exists()]
     for p in missing:
-        print("Tidak ditemukan: %s" % p, file=sys.stderr)
+        print(_("Tidak ditemukan: %s") % p, file=sys.stderr)
     files = find_projects(args.projects)
     if not files:
-        print("Tidak ada file .aep yang ditemukan.", file=sys.stderr)
+        print(_("Tidak ada file .aep yang ditemukan."), file=sys.stderr)
         return 2
     mode, names = _scope_mode(args)
-    print("Collect %d project ke %s" % (len(files), args.output))
-    tag = {"ok": "OK", "catatan": "CATATAN", "gagal": "GAGAL", "dibatalkan": "DIBATALKAN"}
+    print(_("Collect %d project ke %s") % (len(files), args.output))
+    tag = {"ok": "OK", "catatan": _("CATATAN"), "gagal": _("GAGAL"), "dibatalkan": _("DIBATALKAN")}
 
     def on_item(i, it) -> None:
         if it.status not in tag:
@@ -206,7 +230,7 @@ def _collect_batch(args) -> int:
                        on_item=on_item, include_guesses=args.include_guesses)
     print(run.headline())
     if run.summary is not None:
-        print("Ringkasan: %s" % run.summary)
+        print(_("Ringkasan: %s") % run.summary)
     return 0 if run.ok and not missing else 1
 
 

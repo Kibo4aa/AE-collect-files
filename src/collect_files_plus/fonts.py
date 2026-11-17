@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
+from .i18n import _
+
 FONT_EXT = {".ttf", ".otf", ".ttc", ".otc"}
 CACHE_VERSION = 1
 
@@ -120,7 +122,7 @@ class FontIndex:
             rec = cache.get(key)
             if not rec or rec.get("stamp") != stamp:
                 if progress and i % 25 == 0:
-                    progress("Membaca font %d/%d: %s" % (i + 1, len(files), f.name))
+                    progress(_("Membaca font %d/%d: %s") % (i + 1, len(files), f.name))
                 try:
                     faces = _read_faces(f)
                 except Exception:  # file font rusak / format aneh

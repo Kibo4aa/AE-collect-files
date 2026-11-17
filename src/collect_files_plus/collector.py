@@ -14,6 +14,7 @@ from py_aep.models.items.composition import CompItem
 
 from .firstparty import BUILTIN_EFFECTS
 from .fonts import FontFace, FontIndex, adobe_fonts_dirs
+from .i18n import N_, _
 from .plugins import (
     Match,
     PluginFile,
@@ -295,7 +296,7 @@ def analyze(aep: AepProject, options: Options, env: Optional[Environment] = None
     an = Analysis(aep, options, env, roots, comps)
 
     # --- efek
-    _tick(progress, "Membaca efek...", cancel)
+    _tick(progress, _("Membaca efek..."), cancel)
     used, off = aep.effects(comps, options.skip_disabled)
     xml_text = ""
     for cand in _preset_effects_candidates(env):
@@ -368,11 +369,11 @@ def analyze(aep: AepProject, options: Options, env: Optional[Environment] = None
             cd.others = len(others)
             cd.selected = cd.strict  # perkiraan tidak dicentang otomatis
     elif wanted:
-        an.notes.append("Pencarian plugin dimatikan.")
+        an.notes.append(N_("Pencarian plugin dimatikan."))
 
     # --- font
     if options.collect_fonts:
-        _tick(progress, "Membaca daftar font...", cancel)
+        _tick(progress, _("Membaca daftar font..."), cancel)
         names = aep.fonts(comps if options.comp_ids is not None else None)
         if names:
             index = env.cache.get("font_index")
@@ -395,7 +396,7 @@ def analyze(aep: AepProject, options: Options, env: Optional[Environment] = None
 
     # --- footage
     if options.collect_footage:
-        _tick(progress, "Membaca footage...", cancel)
+        _tick(progress, _("Membaca footage..."), cancel)
         only = comps if (options.reduce_project and options.comp_ids is not None) else None
         groups: Dict[str, FootageEntry] = {}
         for ref in aep.footage(only_used_by=only):
@@ -423,7 +424,7 @@ def analyze(aep: AepProject, options: Options, env: Optional[Environment] = None
 
     # --- animation preset (.ffx) yang namanya sama dengan efek yang di-rename
     if options.presets:
-        _tick(progress, "Mencari animation preset (.ffx)...", cancel)
+        _tick(progress, _("Mencari animation preset (.ffx)..."), cancel)
         keys: Dict[str, str] = {}
         for e in an.effects:
             for inst in e.names:
@@ -473,7 +474,7 @@ def collect(an: Analysis, progress: Optional[ProgressFn] = None,
         try:
             res.reduced = aep.reduce(an.roots)
         except Exception as exc:  # noqa: BLE001
-            res.errors.append("Reduce Project gagal: %s" % exc)
+            res.errors.append(_("Reduce Project gagal: %s") % exc)
 
     # 2. footage + relink
     expected: Dict[Tuple[int, str], str] = {}
@@ -499,7 +500,7 @@ def collect(an: Analysis, progress: Optional[ProgressFn] = None,
             _tick(progress, "Footage %d/%d: %s" % (i + 1, len(an.footage), fe.src.name), cancel)
             if not fe.exists:
                 fe.copied = False
-                fe.error = "file tidak ada"
+                fe.error = _("file tidak ada")
                 continue
             try:
                 dest = dest_for(fe.src.parent)
@@ -578,14 +579,14 @@ def collect(an: Analysis, progress: Optional[ProgressFn] = None,
     if blocks:
         xdir = dest_root / "(PresetEffects)"
         xdir.mkdir(parents=True, exist_ok=True)
-        (xdir / "PresetEffects_dari_project.xml").write_text("\n".join([
+        (xdir / _("PresetEffects_dari_project.xml")).write_text("\n".join([
             '<?xml version="1.0" encoding="UTF-8"?>',
-            "<!-- Collect Files Plus: definisi efek dari PresetEffects.xml yang dipakai project ini.",
-            "     Asal: %s" % an.xml_source,
-            '     Efek dengan match name berawalan "Pseudo/" sudah tersimpan di dalam project,',
-            "     jadi biasanya tidak perlu dipasang. Efek lainnya: salin blok <Effect> di bawah",
-            "     ke PresetEffects.xml di komputer tujuan (sebelum tag </Effects> terakhir),",
-            "     lalu restart After Effects. -->",
+            _("<!-- Collect Files Plus: definisi efek dari PresetEffects.xml yang dipakai project ini."),
+            _("     Asal: %s") % an.xml_source,
+            _('     Efek dengan match name berawalan "Pseudo/" sudah tersimpan di dalam project,'),
+            _("     jadi biasanya tidak perlu dipasang. Efek lainnya: salin blok <Effect> di bawah"),
+            _("     ke PresetEffects.xml di komputer tujuan (sebelum tag </Effects> terakhir),"),
+            _("     lalu restart After Effects. -->"),
             "<Effects>",
             "\n\n".join(blocks),
             "</Effects>",
@@ -601,7 +602,7 @@ def collect(an: Analysis, progress: Optional[ProgressFn] = None,
     #    cukup dicopy (penyimpanan py_aep masih eksperimental).
     out_path = dest_root / aep.path.name
     if expected or res.reduced > 0:
-        _tick(progress, "Menyimpan project hasil collect...", cancel)
+        _tick(progress, _("Menyimpan project hasil collect..."), cancel)
         res.backup = copy_file(aep.path, dest_root / "(Backup)")
         try:
             aep.save(out_path)
@@ -610,17 +611,17 @@ def collect(an: Analysis, progress: Optional[ProgressFn] = None,
             res.saved_ok = not res.validation_error
         except Exception as exc:  # noqa: BLE001
             res.saved_ok = False
-            res.validation_error = "Gagal menyimpan project: %s" % exc
+            res.validation_error = _("Gagal menyimpan project: %s") % exc
     else:
         res.project_out = copy_file(aep.path, dest_root)
 
     # 7. laporan + CSV
-    _tick(progress, "Menulis laporan...", None)
+    _tick(progress, _("Menulis laporan..."), None)
     res.report = dest_root / (stem + "_report.txt")
     res.report.write_text("\n".join(build_report(an, res)), encoding="utf-8")
     rows = effect_rows(an)
     if len(rows) > 1:
-        res.csv = dest_root / (stem + "_daftar_efek.csv")
+        res.csv = dest_root / (stem + "_" + _("daftar_efek") + ".csv")
         write_csv(res.csv, rows)
     return res
 
@@ -630,14 +631,14 @@ def _validate(saved: Path, expected: Dict[Tuple[int, str], str]) -> str:
     try:
         check = AepProject(saved)
     except Exception as exc:  # noqa: BLE001
-        return "Project hasil tidak bisa dibaca ulang: %s" % exc
+        return _("Project hasil tidak bisa dibaca ulang: %s") % exc
     got = {(r.item.id, r.role): r.path for r in check.footage()}
     wrong = []
     for key, path in expected.items():
         if os.path.normcase(os.path.normpath(got.get(key, ""))) != os.path.normcase(os.path.normpath(path)):
             wrong.append(path)
     if wrong:
-        return "%d footage tidak menunjuk ke file hasil copy (contoh: %s)" % (len(wrong), wrong[0])
+        return _("%d footage tidak menunjuk ke file hasil copy (contoh: %s)") % (len(wrong), wrong[0])
     return ""
 
 
