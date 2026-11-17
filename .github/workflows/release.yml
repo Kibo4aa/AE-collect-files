@@ -131,7 +131,11 @@ jobs:
         run: |
           ls -la out
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # rilis dibuat manual dari halaman GitHub: tempelkan file zip, isi catatan kalau masih kosong
             gh release upload "$GITHUB_REF_NAME" out/*.zip --clobber
+            if [ -z "$(gh release view "$GITHUB_REF_NAME" --json body --jq .body)" ]; then
+              gh release edit "$GITHUB_REF_NAME" --notes-file packaging/RELEASE_NOTES.md
+            fi
           else
             gh release create "$GITHUB_REF_NAME" out/*.zip \
               --title "Collect Files Plus $GITHUB_REF_NAME" \
