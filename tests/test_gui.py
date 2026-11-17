@@ -774,17 +774,21 @@ def test_real_tk_themed_dialog(real_root):
     try:
         answers = []
 
-        def answer(value):
+        def when_open(action):
+            """Jalankan action(dialog) begitu dialog tampil (dicoba lagi kalau belum)."""
             win = dialogs.current
-            answers.append(win is not None and win.winfo_viewable())
-            win.answer(value)
-        root.after(300, lambda: answer(True))
+            if win is None or not win.winfo_viewable():
+                root.after(50, lambda: when_open(action))
+                return
+            answers.append(True)
+            action(win)
+        root.after(100, lambda: when_open(lambda w: w.answer(True)))
         assert dialogs.show(root, "Collect Files Plus", "Buka folder hasil?", "askyesno", dark=True) is True
-        root.after(300, lambda: answer(False))
+        root.after(100, lambda: when_open(lambda w: w.answer(False)))
         assert dialogs.show(root, "Collect Files Plus", "Buka folder hasil?", "askyesno", dark=False) is False
-        root.after(300, lambda: dialogs.current.destroy())          # ditutup lewat tombol X
+        root.after(100, lambda: when_open(lambda w: w.destroy()))   # ditutup lewat tombol X
         assert dialogs.show(root, "Collect Files Plus", "Selesai.", "showinfo", dark=True) is True
-        assert answers == [True, True] and dialogs.current is None
+        assert answers == [True, True, True] and dialogs.current is None
     finally:
         _clear(root)
 

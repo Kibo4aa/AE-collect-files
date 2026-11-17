@@ -79,6 +79,7 @@ def show(root, title: str, message: str, kind: str = "showinfo", dark: bool = Fa
         first.pack(side="left")
         cancel_value = True
     win.answer = close                     # untuk test & screenshot: dialogs.current.answer(True)
+    current = win
     win.bind("<Return>", lambda _e: close(True))
     win.bind("<Escape>", lambda _e: close(cancel_value))
     win.protocol("WM_DELETE_WINDOW", lambda: close(cancel_value))
@@ -104,7 +105,6 @@ def show(root, title: str, message: str, kind: str = "showinfo", dark: bool = Fa
     except tk.TclError:
         pass
     first.focus_set()
-    current = win
     try:
         root.wait_window(win)
     finally:
