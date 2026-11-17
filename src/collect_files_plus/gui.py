@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import __version__, dnd, sendto, theme, updater
+from . import __version__, dialogs, dnd, sendto, theme, updater
 from .i18n import LANGS, _, get_language, set_language, system_language
 
 APP_TITLE = "Collect Files Plus"
@@ -398,6 +398,8 @@ class App:
     def _apply_theme(self) -> None:
         """Tema + font sesuai bahasa + ukuran baris tabel. Dipanggil saat mulai, ganti tema, ganti bahasa."""
         self.theme_name = theme.apply(self.root, self.var_theme.get(), self.scale)
+        if self.theme_name:
+            theme.menus_dark(self.theme_name == "dark")
         theme.apply_fonts(self.root, get_language())
         style = ttk.Style(self.root)
         try:  # baris tabel ikut membesar di layar high-DPI dan untuk huruf Jepang
@@ -590,7 +592,7 @@ class App:
         self.progress = ttk.Progressbar(bottom, mode="determinate", length=self.px(170))
         ttk.Label(bottom, textvariable=self.var_status).pack(side="left", fill="x", expand=True, padx=(10, 0))
         bottom.pack(side="bottom", fill="x", before=self.nb)   # tombol tetap terlihat walau jendela pendek
-        self._frames = [self.update_bar, top, self.nb, bottom]
+        self._frames = [f for f in (self.menu_frame, self.update_bar, top, self.nb, bottom) if f is not None]
 
         self._bind_tree_actions()
         self._update_comp_hint()
@@ -604,15 +606,23 @@ class App:
         label.bind("<Configure>", lambda e: label.configure(wraplength=max(200, e.width - 4)), add="+")
 
     def _build_menu(self) -> None:
-        bar = tk.Menu(self.root)
+        """Menu File / Pengaturan / Bantuan. Di Windows & Linux berupa baris tombol bertema (menu bar
+        bawaan Windows selalu putih); di macOS menu bar sistem di atas layar."""
+        dark = self.theme_name == "dark"
+
+        def sep(menu) -> None:          # garis pemisah buatan Tk terlihat putih di tema gelap
+            if not (dark and sys.platform == "win32"):
+                menu.add_separator()
+
+        bar = tk.Menu(self.root, tearoff=0)
         m_file = tk.Menu(bar, tearoff=0)
         m_file.add_command(label=_("Buka project..."), accelerator="Ctrl+O", command=self.choose_aep)
         m_file.add_command(label=_("Tambah project ke Batch..."), command=self.batch_add_files)
         m_file.add_command(label=_("Tambah folder ke Batch..."), command=self.batch_add_folder)
-        m_file.add_separator()
+        sep(m_file)
         m_file.add_command(label=_("Buka folder hasil"), command=self.open_result)
         m_file.add_command(label=_("Buka laporan terakhir"), command=self.open_last_report)
-        m_file.add_separator()
+        sep(m_file)
         m_file.add_command(label=_("Keluar"), command=self.on_close)
         bar.add_cascade(label=_("File"), menu=m_file)
 
@@ -626,7 +636,7 @@ class App:
         for code, label in (("system", follow), ("light", _("Terang")), ("dark", _("Gelap"))):
             m_theme.add_radiobutton(label=label, value=code, variable=self.var_theme, command=self._on_theme_menu)
         m_set.add_cascade(label=_("Tema"), menu=m_theme)
-        m_set.add_separator()
+        sep(m_set)
         m_set.add_checkbutton(label=_("Cek update saat aplikasi dibuka"), variable=self.var_auto_update,
                               command=lambda: self._save_settings(None))
         if sendto.available():
@@ -638,14 +648,52 @@ class App:
         m_help.add_command(label=_("Cara pakai"), accelerator="F1", command=self.open_readme)
         m_help.add_command(label=_("Cek update..."), command=lambda: self.check_updates(manual=True))
         m_help.add_command(label=_("Halaman GitHub"), command=lambda: webbrowser.open(GITHUB_URL))
-        m_help.add_separator()
+        sep(m_help)
         m_help.add_command(label=_("Tentang Collect Files Plus"), command=self.show_about)
         bar.add_cascade(label=_("Bantuan"), menu=m_help)
-        self.root.configure(menu=bar)
+
+        if self.theme_name:
+            for menu in (bar, m_file, m_set, m_lang, m_theme, m_help):
+                theme.style_menu(menu, dark)
+        self.menu_frame = None
+        self.menu_buttons: List = []
+        if sys.platform == "darwin":
+            self.root.configure(menu=bar)
+        else:
+            self.menu_frame = ttk.Frame(self.root, padding=(self.px(4), self.px(2), self.px(4), 0))
+            self.menu_frame.pack(side="top", fill="x")
+            for label, menu in ((_("File"), m_file), (_("Pengaturan"), m_set), (_("Bantuan"), m_help)):
+                button = ttk.Button(self.menu_frame, text=label, style="Toolbutton", takefocus=False)
+                button.configure(command=lambda m=menu, b=button: self._post_menu(m, b))
+                button.pack(side="left")
+                self.menu_buttons.append((button, menu))
         self.menubar = bar
+
+    def _post_menu(self, menu, button) -> None:
+        """Buka menu drop-down tepat di bawah tombolnya."""
+        try:
+            x, y = button.winfo_rootx(), button.winfo_rooty() + button.winfo_height()
+            menu.tk_popup(x, y)
+        except Exception:  # noqa: BLE001
+            pass
+        finally:
+            try:
+                menu.grab_release()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _post_menu_key(self, index: int) -> str:
+        if 0 <= index < len(self.menu_buttons):
+            self._post_menu(self.menu_buttons[index][1], self.menu_buttons[index][0])
+        return "break"
 
     def _bind_keys(self) -> None:
         r = self.root
+        if sys.platform != "darwin":       # menu bar buatan sendiri: Alt+F / Alt+S / Alt+H, F10
+            for i, key in enumerate(("f", "s", "h")):
+                r.bind("<Alt-%s>" % key, lambda _e, n=i: self._post_menu_key(n))
+                r.bind("<Alt-%s>" % key.upper(), lambda _e, n=i: self._post_menu_key(n))
+            r.bind("<F10>", lambda _e: self._post_menu_key(0))
         r.bind("<Control-o>", lambda _e: self.choose_aep())
         r.bind("<F5>", lambda _e: self.start_analyze())
         r.bind("<Control-Return>", lambda _e: self.start_collect())
@@ -661,6 +709,17 @@ class App:
             info.tree.bind("<Double-1>", lambda e, n=name, t=info.tree: self._reveal_row(n, t.identify_row(e.y)))
         self.batch_tree.tree.bind("<Double-1>", lambda e: self.batch_open(self.batch_tree.tree.identify_row(e.y)))
         self.batch_tree.tree.bind("<Button-2>" if sys.platform == "darwin" else "<Button-3>", self._batch_menu)
+
+    def _message(self, kind: str, text: str) -> bool:
+        """Kotak pesan (kind: showinfo / showwarning / showerror / askyesno). Dengan tema Sun Valley
+        memakai jendela bertema (gelap/terang); tanpa tema memakai messagebox bawaan."""
+        if self.theme_name:
+            try:
+                return bool(dialogs.show(self.root, APP_TITLE, text, kind, dark=self.theme_name == "dark",
+                                         scale=self.scale))
+            except tk.TclError:
+                pass
+        return bool(getattr(messagebox, kind)(APP_TITLE, text))
 
     def _reveal_row(self, kind: str, iid: str) -> None:
         path = self.row_paths.get(kind, {}).get(iid)
@@ -700,7 +759,7 @@ class App:
     def load_project(self) -> None:
         path = self.var_aep.get().strip()
         if not path or not Path(path).is_file():
-            messagebox.showerror(APP_TITLE, _("File .aep tidak ditemukan."))
+            self._message("showerror", _("File .aep tidak ditemukan."))
             return
         self.settings["aep_dir"] = str(Path(path).parent)
         if not self.var_dest.get().strip():
@@ -714,11 +773,11 @@ class App:
         if mode == "rq":
             ids = set(self.rq_ids)
             if not ids:
-                messagebox.showinfo(APP_TITLE, _("Render Queue di project ini kosong."))
+                self._message("showinfo", _("Render Queue di project ini kosong."))
                 return
         else:
             if self.active_id is None:
-                messagebox.showinfo(APP_TITLE, _("Tidak ada comp aktif yang tersimpan di project ini."))
+                self._message("showinfo", _("Tidak ada comp aktif yang tersimpan di project ini."))
                 return
             ids = {self.active_id}
         for iid in self.comp_tree.checked:
@@ -754,13 +813,13 @@ class App:
 
     def _validate_inputs(self, need_dest: bool) -> bool:
         if not self.aep:
-            messagebox.showwarning(APP_TITLE, _("Buka file .aep dulu."))
+            self._message("showwarning", _("Buka file .aep dulu."))
             return False
         if not self.comp_tree.checked_ids():
-            messagebox.showwarning(APP_TITLE, _("Centang minimal satu comp di tab \"1. Comp & opsi\"."))
+            self._message("showwarning", _("Centang minimal satu comp di tab \"1. Comp & opsi\"."))
             return False
         if need_dest and not self.var_dest.get().strip():
-            messagebox.showwarning(APP_TITLE, _("Pilih folder tujuan dulu."))
+            self._message("showwarning", _("Pilih folder tujuan dulu."))
             return False
         return True
 
@@ -791,7 +850,7 @@ class App:
         if self.last_report is not None and Path(self.last_report).is_file():
             open_folder(self.last_report)
         else:
-            messagebox.showinfo(APP_TITLE, _("Belum ada laporan. Jalankan Collect dulu."))
+            self._message("showinfo", _("Belum ada laporan. Jalankan Collect dulu."))
 
     def open_readme(self) -> None:
         path = docs_dir() / ("README_%s.txt" % get_language())
@@ -800,7 +859,7 @@ class App:
         open_folder(path)
 
     def show_about(self) -> None:
-        messagebox.showinfo(APP_TITLE, _("Collect Files Plus %s\n\nKumpulkan footage, font, dan plugin yang dipakai "
+        self._message("showinfo", _("Collect Files Plus %s\n\nKumpulkan footage, font, dan plugin yang dipakai "
                                          "project After Effects tanpa membuka After Effects.\n\nLisensi MIT\n%s")
                             % (__version__, GITHUB_URL))
 
@@ -826,8 +885,16 @@ class App:
         self.var_status.set(_("Bahasa diganti ke %s.") % LANGS[code])
 
     def _on_theme_menu(self) -> None:
+        self.root.after_idle(self.change_theme)        # setelah menu tertutup (menu lama dibuang)
+
+    def change_theme(self) -> None:
+        """Pasang tema terang/gelap dan bangun ulang jendela (menu, tabel, warna) dengan tema itu."""
+        if self.worker is not None and self.worker.is_alive():
+            self.var_theme.set(self.settings.get("theme", "system"))
+            self.var_status.set(_("Tunggu proses yang sedang berjalan selesai dulu."))
+            return
         self._apply_theme()
-        self._recolor()
+        self._rebuild()
         self._sync_titlebar()
         self.settings["theme"] = self.var_theme.get()
         save_settings(self.settings)
@@ -888,18 +955,18 @@ class App:
             self.var_status.set("")
         if error:
             if manual:
-                messagebox.showwarning(APP_TITLE, _("Tidak bisa mengecek update:\n%s") % error)
+                self._message("showwarning", _("Tidak bisa mengecek update:\n%s") % error)
             return
         if info is None:
             if manual:
-                messagebox.showinfo(APP_TITLE, _("Belum ada rilis di GitHub."))
+                self._message("showinfo", _("Belum ada rilis di GitHub."))
             return
         if info.newer:
             self.update_info = info
             self.update_dismissed = False
             self._show_update_bar()
         elif manual:
-            messagebox.showinfo(APP_TITLE, _("Kamu sudah memakai versi terbaru (%s).") % __version__)
+            self._message("showinfo", _("Kamu sudah memakai versi terbaru (%s).") % __version__)
 
     def _show_update_bar(self) -> None:
         info = self.update_info
@@ -932,7 +999,7 @@ class App:
                          "meminta izin (UAC). Aplikasi dibuka lagi setelah selesai.")
         else:
             question = _("Download dan pasang versi %s sekarang?\n\nAplikasi akan ditutup lalu dibuka lagi otomatis.")
-        if not messagebox.askyesno(APP_TITLE, question % info.version):
+        if not self._message("askyesno", question % info.version):
             return
         self._run("update", self._job_update, (info, mode), determinate=True)
 
@@ -961,9 +1028,9 @@ class App:
 
     def _show_update_result(self, ok: bool, detail: str) -> None:
         if ok:
-            messagebox.showinfo(APP_TITLE, _("Update berhasil. Sekarang memakai versi %s.") % (detail or __version__))
+            self._message("showinfo", _("Update berhasil. Sekarang memakai versi %s.") % (detail or __version__))
         else:
-            messagebox.showwarning(APP_TITLE, _("Update gagal, versi lama tetap dipakai.\nCatatan: %s") % detail)
+            self._message("showwarning", _("Update gagal, versi lama tetap dipakai.\nCatatan: %s") % detail)
 
     # ------------------------------------------------- drag & drop, batch
 
@@ -1094,10 +1161,14 @@ class App:
         if self.ctx_menu is None:
             self.ctx_menu = tk.Menu(self.root, tearoff=0)
         menu = self.ctx_menu
+        dark = self.theme_name == "dark"
+        if self.theme_name:
+            theme.style_menu(menu, dark)
         menu.delete(0, "end")
         menu.add_command(label=_("Buka folder hasil"), command=lambda: self.batch_open(iid), state=state)
         menu.add_command(label=_("Buka laporan"), command=lambda: self.batch_open(iid, report=True), state=state)
-        menu.add_separator()
+        if not (dark and sys.platform == "win32"):
+            menu.add_separator()
         menu.add_command(label=_("Hapus dari daftar"), command=self.batch_remove_selected)
         try:
             menu.tk_popup(event.x_root, event.y_root)
@@ -1108,11 +1179,11 @@ class App:
         if self._busy_now():
             return
         if not self.batch_paths:
-            messagebox.showwarning(APP_TITLE, _("Daftar batch masih kosong. Klik \"Tambah file .aep...\" atau "
+            self._message("showwarning", _("Daftar batch masih kosong. Klik \"Tambah file .aep...\" atau "
                                                 "drag file .aep ke jendela ini."))
             return
         if not self.var_dest.get().strip():
-            messagebox.showwarning(APP_TITLE, _("Pilih folder tujuan dulu."))
+            self._message("showwarning", _("Pilih folder tujuan dulu."))
             return
         opt = self._base_options()
         self._save_settings(None)
@@ -1136,20 +1207,20 @@ class App:
         try:
             if want:
                 sendto.install()
-                messagebox.showinfo(APP_TITLE, _("Terpasang.\n\nCara pakai: di Explorer pilih satu atau banyak file "
+                self._message("showinfo", _("Terpasang.\n\nCara pakai: di Explorer pilih satu atau banyak file "
                                                  ".aep (atau folder), klik kanan > Send to > Collect Files Plus.\n"
                                                  "Windows 11: klik \"Show more options\" dulu untuk melihat Send to.\n\n"
                                                  "Kalau folder aplikasi ini dipindah, pasang ulang dari sini."))
             else:
                 sendto.uninstall()
-                messagebox.showinfo(APP_TITLE, _("Collect Files Plus sudah dihapus dari menu Send to."))
+                self._message("showinfo", _("Collect Files Plus sudah dihapus dari menu Send to."))
         except Exception as exc:  # noqa: BLE001
-            messagebox.showerror(APP_TITLE, _("Gagal: %s") % exc)
+            self._message("showerror", _("Gagal: %s") % exc)
         self.var_sendto.set(sendto.installed())
 
     def on_close(self) -> None:
         if self.worker is not None and self.worker.is_alive():
-            if not messagebox.askyesno(APP_TITLE, _("Proses masih berjalan. Hentikan dan tutup?")):
+            if not self._message("askyesno", _("Proses masih berjalan. Hentikan dan tutup?")):
                 return
             self.cancel.set()
         self._save_settings(None)
@@ -1238,11 +1309,11 @@ class App:
                     self._log("ERROR: " + payload)
                     first = payload.split("\n", 1)[0]
                     if kind == "load":
-                        messagebox.showerror(APP_TITLE, _("File .aep tidak bisa dibaca:\n%s\n\n"
+                        self._message("showerror", _("File .aep tidak bisa dibaca:\n%s\n\n"
                                                "Kalau project dibuat dengan versi After Effects yang sangat baru, "
                                                "coba pakai script JSX (folder jsx) dari dalam After Effects.") % first)
                     else:
-                        messagebox.showerror(APP_TITLE, _("Terjadi error:\n%s\n\nDetail ada di tab Log.") % first)
+                        self._message("showerror", _("Terjadi error:\n%s\n\nDetail ada di tab Log.") % first)
                     self.var_status.set(_("Error."))
                 elif ev == "cancelled":
                     self._busy(False)
@@ -1281,7 +1352,7 @@ class App:
                 else:
                     updater.launch_apply(path, tmp, version)
             except Exception as exc:  # noqa: BLE001
-                messagebox.showerror(APP_TITLE, _("Gagal memulai update: %s") % exc)
+                self._message("showerror", _("Gagal memulai update: %s") % exc)
                 return
             self._save_settings(None)
             self.root.destroy()                 # skrip pemasang menunggu aplikasi tertutup
@@ -1315,7 +1386,7 @@ class App:
                 if it.status == "gagal":
                     self._log(_("GAGAL %s: %s") % (it.path, it.error))
             self.var_status.set(_("Batch selesai: %s") % run.headline())
-            if messagebox.askyesno(APP_TITLE, msg + _("\n\nBuka folder tujuan?")):
+            if self._message("askyesno", msg + _("\n\nBuka folder tujuan?")):
                 open_folder(run.dest)
         elif kind == "collect":
             self.result = payload
@@ -1329,7 +1400,7 @@ class App:
                 msg += _("\n\n%d error, lihat laporan.") % len(payload.errors)
             self._log(msg)
             self.var_status.set(_("Selesai: %s") % payload.dest_root)
-            if messagebox.askyesno(APP_TITLE, msg + _("\n\nBuka folder hasil?")):
+            if self._message("askyesno", msg + _("\n\nBuka folder hasil?")):
                 open_folder(payload.dest_root)
 
     def _fill_comps(self, log: bool = True) -> None:

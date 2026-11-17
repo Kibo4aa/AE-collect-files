@@ -77,6 +77,15 @@ def build():
         def winfo_exists(self):
             return not getattr(self, "destroyed", False)
 
+        def winfo_rootx(self):
+            return 0
+
+        def winfo_rooty(self):
+            return 0
+
+        def winfo_height(self):
+            return 20
+
         def configure(self, cnf=None, **kw):
             self.kw.update(cnf or {}, **kw)
 

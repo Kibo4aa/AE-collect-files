@@ -288,6 +288,10 @@ EN = {
     "Buka laporan": "Open report",
     "Hapus dari daftar": "Remove from list",
 
+    # ---------------------------------------------------------------- dialogs
+    "Ya": "Yes",
+    "Tidak": "No",
+
     # ---------------------------------------------------------------- plugins
     "data PiPL": "PiPL data",
     "data PiPL (nama efek sama dengan match name)": "PiPL data (effect name equals the match name)",

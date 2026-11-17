@@ -14,6 +14,13 @@ STATUS_COLORS: Dict[str, Dict[str, str]] = {
     "dark": {"ok": "#6ccb5f", "warn": "#f7c94b", "error": "#ff99a4", "muted": "#9a9a9a", "run": "#60cdff"},
 }
 TEXT_COLORS = {"light": ("#ffffff", "#1c1c1c"), "dark": ("#202020", "#e8e8e8")}  # (latar, teks) untuk tk.Text
+# menu drop-down (tk.Menu), mirip menu Windows 11
+MENU_COLORS = {
+    "light": {"background": "#f9f9f9", "foreground": "#1a1a1a", "activebackground": "#e1e1e1",
+              "activeforeground": "#1a1a1a", "selectcolor": "#1a1a1a", "disabledforeground": "#a0a0a0"},
+    "dark": {"background": "#2c2c2c", "foreground": "#f2f2f2", "activebackground": "#454545",
+             "activeforeground": "#ffffff", "selectcolor": "#f2f2f2", "disabledforeground": "#7a7a7a"},
+}
 
 _JA_FONTS = ("Yu Gothic UI", "Meiryo UI", "MS UI Gothic")
 _FALLBACK_FONTS = ("Segoe UI",)
@@ -77,6 +84,51 @@ def _scale_fonts(root, scale: float) -> None:
         pass
 
 
+def style_menu(menu, dark: bool) -> None:
+    """Warna menu drop-down sesuai tema (tanpa garis tepi 3D yang terlihat putih di tema gelap)."""
+    try:
+        menu.configure(relief="flat", borderwidth=0, activeborderwidth=0, **MENU_COLORS["dark" if dark else "light"])
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def menus_dark(dark: bool) -> None:
+    """Windows 10 (1809+) / 11: bingkai menu drop-down bawaan Windows ikut gelap/terang.
+    Memakai fungsi uxtheme tanpa nama (ordinal 135/136) yang juga dipakai Notepad++ dkk."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        build = sys.getwindowsversion().build
+        if build < 17763:
+            return
+        ux = ctypes.WinDLL("uxtheme")
+        mode = ux[135]                               # SetPreferredAppMode (1903+) / AllowDarkModeForApp (1809)
+        mode.restype = ctypes.c_int
+        mode.argtypes = [ctypes.c_int]
+        mode((2 if dark else 3) if build >= 18362 else (1 if dark else 0))   # 2 = paksa gelap, 3 = paksa terang
+        flush = ux[136]                              # FlushMenuThemes
+        flush.restype = None
+        flush.argtypes = []
+        flush()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _allow_dark_window(hwnd, dark: bool) -> None:
+    try:
+        import ctypes
+        from ctypes import wintypes
+        if sys.getwindowsversion().build < 17763:
+            return
+        allow = ctypes.WinDLL("uxtheme")[133]       # AllowDarkModeForWindow
+        allow.restype = wintypes.BOOL
+        allow.argtypes = [wintypes.HWND, wintypes.BOOL]
+        allow(hwnd, bool(dark))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def titlebar(root, dark: bool) -> None:
     """Title bar gelap/terang di Windows 10/11 (DwmSetWindowAttribute)."""
     if sys.platform != "win32":
@@ -93,6 +145,7 @@ def titlebar(root, dark: bool) -> None:
         hwnd = user32.GetParent(root.winfo_id())
         if not hwnd:
             return
+        _allow_dark_window(hwnd, dark)
         value = ctypes.c_int(1 if dark else 0)
         for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 11 / Windows 10 lama)
             if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(value), ctypes.sizeof(value)) == 0:

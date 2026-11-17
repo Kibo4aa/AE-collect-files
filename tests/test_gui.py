@@ -331,8 +331,12 @@ def test_gui_menus_help_and_theme(gui, tmp_path, monkeypatch):
     assert opened[-1].name == "README_en.txt" and i18n.get_language() == "en"
 
     m_set = _menu_with(app, "Theme")
+    old_nb = app.nb
     _submenu(m_set, "Theme").invoke("Dark")
+    root.after_calls.pop()()                                      # tema diganti setelah menu tertutup
     assert app.var_theme.get() == "dark" and gui.load_settings()["theme"] == "dark"
+    assert app.nb is not old_nb and old_nb.destroyed              # jendela dibangun ulang dengan tema baru
+    m_set = _menu_with(app, "Theme")
     m_set.invoke("Check for updates when the app opens")         # dimatikan
     assert gui.load_settings()["check_updates"] is False
     app.on_close()
@@ -344,6 +348,38 @@ def test_gui_menus_help_and_theme(gui, tmp_path, monkeypatch):
     keys = root2.bindings
     for seq in ("<Control-o>", "<F5>", "<Control-Return>", "<F1>", "<Escape>"):
         assert seq in keys, seq
+
+
+def test_gui_dark_theme_menus_and_dialogs(gui, monkeypatch):
+    """Tema gelap: menu bar dari tombol bertema, menu drop-down gelap, kotak pesan bertema (bukan putih)."""
+    gui, mods = gui
+    monkeypatch.setattr(gui.theme, "apply", lambda root, mode, scale=1.0: "light" if mode == "system" else mode)
+    calls = []
+    monkeypatch.setattr(gui.theme, "menus_dark", lambda dark: calls.append(dark))
+    shown = []
+    monkeypatch.setattr(gui.dialogs, "show", lambda root, title, text, kind="showinfo", dark=False, scale=1.0:
+                        shown.append((kind, dark)) or True)
+    gui.save_settings({"theme": "dark", "lang": "en"})
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    assert app.theme_name == "dark" and calls == [True]
+    assert app.menubar.kw["background"] == gui.theme.MENU_COLORS["dark"]["background"]
+    assert app.menubar.kw["relief"] == "flat" and app.menubar.kw["borderwidth"] == 0
+    assert [b.kw["text"] for b, _m in app.menu_buttons] == ["File", "Settings", "Help"]
+    assert app.menu_frame in app._frames and "menu" not in root.kw   # bukan menu bar bawaan (putih)
+    button, menu = app.menu_buttons[0]
+    app._post_menu(menu, button)
+    assert menu.popped == (0, 20)                                  # tepat di bawah tombol "File"
+    app.open_last_report()
+    assert shown == [("showinfo", True)] and not mods["tkinter.messagebox"].log
+    assert app._message("askyesno", "?") is True
+
+    _submenu(_menu_with(app, "Theme"), "Theme").invoke("Light")
+    root.after_calls.pop()()
+    assert app.theme_name == "light" and calls[-1] is False
+    assert app.menubar.kw["background"] == gui.theme.MENU_COLORS["light"]["background"]
+    app.open_last_report()
+    assert shown[-1] == ("showinfo", False)
 
 
 def test_gui_window_size_is_remembered(gui, tmp_path):
@@ -653,6 +689,8 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         shown = []
         for kind in ("showerror", "showinfo", "showwarning", "askyesno"):
             monkeypatch.setattr(messagebox, kind, lambda *a, _k=kind, **kw: shown.append((_k, a)) and False)
+        monkeypatch.setattr(real_gui.dialogs, "show", lambda root, title, text, kind="showinfo", **kw:
+                            shown.append((kind, (title, text))) and False)
         monkeypatch.setattr(real_gui, "settings_path", lambda: tmp_path / "settings.json")
         monkeypatch.setattr(real_gui, "open_folder", lambda p: None)
         from collect_files_plus import collector
@@ -718,6 +756,29 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         _clear(root)
 
 
+def test_real_tk_themed_dialog(real_root):
+    """Kotak pesan bertema dengan Tk asli: Ya/Enter -> True, Tidak/Escape -> False, info -> True."""
+    root = real_root
+    _clear(root)
+    from collect_files_plus import dialogs
+    try:
+        answers = []
+
+        def answer(value):
+            win = dialogs.current
+            answers.append(win is not None and win.winfo_viewable())
+            win.answer(value)
+        root.after(300, lambda: answer(True))
+        assert dialogs.show(root, "Collect Files Plus", "Buka folder hasil?", "askyesno", dark=True) is True
+        root.after(300, lambda: answer(False))
+        assert dialogs.show(root, "Collect Files Plus", "Buka folder hasil?", "askyesno", dark=False) is False
+        root.after(300, lambda: dialogs.current.destroy())          # ditutup lewat tombol X
+        assert dialogs.show(root, "Collect Files Plus", "Selesai.", "showinfo", dark=True) is True
+        assert answers == [True, True] and dialogs.current is None
+    finally:
+        _clear(root)
+
+
 def _post_drop(hwnd, files):
     """Kirim WM_DROPFILES seperti Explorer: memori HDROP berisi daftar file, lewat PostMessage
     (diproses nanti oleh event loop Tk, persis seperti drop sungguhan)."""
@@ -758,6 +819,7 @@ def test_real_windows_drag_and_drop(real_root, tmp_path, monkeypatch):
         from tkinter import messagebox
         for kind in ("showerror", "showinfo", "showwarning", "askyesno"):
             monkeypatch.setattr(messagebox, kind, lambda *a, **kw: False)
+        monkeypatch.setattr(real_gui.dialogs, "show", lambda *a, **kw: False)
         monkeypatch.setattr(real_gui, "settings_path", lambda: tmp_path / "settings.json")
         from collect_files_plus import collector
         env = env_for(tmp_path)
