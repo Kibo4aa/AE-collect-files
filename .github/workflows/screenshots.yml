@@ -28,9 +28,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e . pillow
       - name: Screenshots
+        env:
+          PYTHONUTF8: "1"
         run: |
           python packaging/screenshots.py shots
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           python packaging/screenshots.py shots 1.25
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Gambar di log (base64)
         if: inputs.log_images
         shell: python

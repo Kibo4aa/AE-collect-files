@@ -131,35 +131,35 @@ def main() -> int:
         set_button, set_menu = app.menu_buttons[1]
         click_at(*center(file_button))
         settle(0.7)
-        results["klik File membuka menu"] = file_menu.is_open
+        results["click File opens"] = file_menu.is_open
         click_at(*center(set_button))
         settle(0.7)
-        results["klik Settings saat File terbuka: pindah menu"] = set_menu.is_open and not file_menu.is_open
+        results["click Settings while File open switches"] = set_menu.is_open and not file_menu.is_open
         click_at(*center(app.nb))
         settle(0.6)
-        results["klik di luar menutup menu"] = not set_menu.is_open
+        results["click outside closes"] = not set_menu.is_open
         user32.keybd_event(0x12, 0, 0, 0)       # Alt+F
         key(0x46)
         user32.keybd_event(0x12, 0, 2, 0)
         settle(0.6)
-        results["Alt+F membuka menu File"] = file_menu.is_open
+        results["Alt+F opens File"] = file_menu.is_open
         key(0x28)
         settle(0.3)
-        results["panah bawah menyorot item pertama"] = file_menu.active == 0
+        results["Down highlights first item"] = file_menu.active == 0
         key(0x1B)
         settle(0.4)
-        results["Escape menutup menu"] = not file_menu.is_open
+        results["Escape closes"] = not file_menu.is_open
         click_at(*center(set_button))
         settle(0.7)
         x, y = center(set_menu.rows[0][1][1])
         user32.SetCursorPos(int(x), int(y))
         settle(0.8)
         lang_menu = set_menu.child
-        results["arahkan mouse membuka submenu Bahasa"] = lang_menu is not None and lang_menu.is_open
+        results["hover opens Language submenu"] = lang_menu is not None and lang_menu.is_open
         if lang_menu is not None and lang_menu.is_open:
             click_at(*center(lang_menu.rows[2][1][1]))          # 日本語
             settle(1.2)
-        results["klik 日本語 mengganti bahasa"] = get_language() == "ja"
+        results["click Japanese switches language"] = get_language() == "ja"
         app.change_language("en")
         root.attributes("-topmost", False)
         settle(0.3)
