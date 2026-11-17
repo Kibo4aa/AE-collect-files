@@ -136,11 +136,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p_col.add_argument("-o", "--output", type=Path, required=True, help=_("folder tujuan"))
 
     sub.add_parser("gui", help=_("buka jendela aplikasi"))
+    sub.add_parser("update", help=_("cek versi terbaru di GitHub"))
 
     args = parser.parse_args(argv)
     if args.cmd in (None, "gui"):
         from .gui import main as gui_main
         return gui_main()
+    if args.cmd == "update":
+        return _check_update()
 
     from .collector import Cancelled, analyze, collect
     from .project import AepProject
@@ -195,6 +198,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not res.saved_ok:
         print(_("PERHATIAN: %s") % res.validation_error, file=sys.stderr)
         return 1
+    return 0
+
+
+def _check_update() -> int:
+    from . import updater
+    try:
+        info = updater.check_latest()
+    except Exception as exc:  # noqa: BLE001
+        print(_("Tidak bisa mengecek update:\n%s") % exc, file=sys.stderr)
+        return 1
+    print(_("Versi ini     : %s") % __version__)
+    if info is None:
+        print(_("Belum ada rilis di GitHub."))
+        return 0
+    print(_("Versi terbaru : %s") % info.version)
+    if info.newer:
+        print(_("Download      : %s") % info.page)
+        print(_("Di aplikasi (jendela), klik \"Update sekarang\" untuk memasang otomatis."))
+    else:
+        print(_("Kamu sudah memakai versi terbaru (%s).") % __version__)
     return 0
 
 

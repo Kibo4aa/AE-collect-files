@@ -14,6 +14,8 @@ def _bahasa_indonesia(monkeypatch):
     """Test memakai bahasa Indonesia kecuali test itu sendiri menggantinya."""
     from collect_files_plus import i18n
     monkeypatch.setenv(i18n.ENV_VAR, "id")
+    monkeypatch.setenv("COLLECT_FILES_PLUS_NO_UPDATE_CHECK", "1")   # test tidak boleh ke internet
+    monkeypatch.delenv("COLLECT_FILES_PLUS_UPDATE_RESULT", raising=False)
     i18n.set_language("id")
     yield
     i18n.set_language("id")

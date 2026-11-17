@@ -404,4 +404,33 @@ EN = {
     # ----------------------------------------------------------------- sendto
     "Folder SendTo tidak ditemukan (APPDATA kosong).": "SendTo folder not found (APPDATA is empty).",
     "Gagal membuat shortcut Send to. %s": "Could not create the Send to shortcut. %s",
+
+    # ---------------------------------------------------------------- updater
+    "cek versi terbaru di GitHub": "check GitHub for the latest version",
+    "Versi ini     : %s": "This version  : %s",
+    "Belum ada rilis di GitHub.": "There are no releases on GitHub yet.",
+    "Versi terbaru : %s": "Latest version: %s",
+    'Di aplikasi (jendela), klik "Update sekarang" untuk memasang otomatis.':
+        'In the app window, click "Update now" to install it automatically.',
+    "Download      : %s": "Download      : %s",
+    "Kamu sudah memakai versi terbaru (%s).": "You already have the latest version (%s).",
+    "Tidak bisa mengecek update:\n%s": "Could not check for updates:\n%s",
+    "Menyiapkan update...": "Preparing the update...",
+    "Update sekarang": "Update now",
+    "Mengecek update...": "Checking for updates...",
+    "Versi baru %s tersedia (kamu memakai %s).": "New version %s is available (you have %s).",
+    "Download": "Download",
+    "Download dan pasang versi %s sekarang?\n\nAplikasi akan ditutup lalu dibuka lagi otomatis.":
+        "Download and install version %s now?\n\nThe app will close and reopen automatically.",
+    "Update berhasil. Sekarang memakai versi %s.": "Update complete. You are now on version %s.",
+    "Update gagal, versi lama tetap dipakai.\nCatatan: %s": "The update failed; the old version is still in use.\nLog: %s",
+    "Cek update": "Check for updates",
+    "Lihat perubahan": "What's new",
+    "Tutup": "Close",
+    "Mengunduh update: %s dari %s": "Downloading update: %s of %s",
+    "Gagal memulai update: %s": "Could not start the update: %s",
+    "Isi update tidak lengkap (CollectFilesPlus.exe tidak ada).": "The update is incomplete (CollectFilesPlus.exe is missing).",
+    "Rilis ini tidak punya file untuk sistem ini.": "This release has no file for this system.",
+    "File update rusak (checksum tidak cocok). Coba lagi.": "The update file is damaged (checksum mismatch). Try again.",
+    "Isi file update tidak valid.": "The update file contents are invalid.",
 }

@@ -68,6 +68,9 @@ jobs:
           $dirs = Get-ChildItem -Directory "$env:RUNNER_TEMP\batch-out" | ForEach-Object { $_.Name }
           $dirs
           if ($dirs.Count -ne 2) { throw "batch harus menghasilkan 2 folder" }
+          $up = & "$d\collect-files-plus.exe" update 2>&1 | Out-String
+          $up
+          if ($up -match "CERTIFICATE_VERIFY_FAILED|Traceback") { throw "cek update gagal (HTTPS)" }
           $env:COLLECT_FILES_PLUS_AUTOCLOSE_MS = "4000"
           & "$d\collect-files-plus.exe" gui
           if ($LASTEXITCODE -ne 0) { throw "GUI (console) gagal" }
@@ -91,6 +94,8 @@ jobs:
           proj2=$(python packaging/smoke_project.py "$RUNNER_TEMP/smoke2")
           "$exe" collect "$proj" "$proj2" -o "$RUNNER_TEMP/batch-out"
           test "$(find "$RUNNER_TEMP/batch-out" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 2
+          up=$("$exe" update 2>&1 || true); echo "$up"
+          if echo "$up" | grep -qE "CERTIFICATE_VERIFY_FAILED|Traceback"; then echo "cek update gagal (HTTPS)"; exit 1; fi
           COLLECT_FILES_PLUS_AUTOCLOSE_MS=4000 perl -e 'alarm 90; exec @ARGV' "$exe" gui
 
       - name: Zip (Windows)

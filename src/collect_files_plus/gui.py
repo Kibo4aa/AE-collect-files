@@ -9,13 +9,14 @@ import subprocess
 import sys
 import threading
 import traceback
+import webbrowser
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import __version__, dnd, sendto
+from . import __version__, dnd, sendto, updater
 from .i18n import LANGS, _, get_language, set_language, system_language
 
 APP_TITLE = "Collect Files Plus"
@@ -204,6 +205,8 @@ class App:
         self.batch_paths: List[Path] = []
         self.batch_run = None
         self.last_folder: Optional[Path] = None
+        self.update_info = None
+        self.update_dismissed = False
 
         self.scale = ui_scale(root)
         root.title("%s %s" % (APP_TITLE, __version__))
@@ -237,6 +240,12 @@ class App:
             root.after(200, self.load_project)
         if batch:
             self.add_batch_paths(batch)
+        result = updater.take_update_result()          # baru saja di-update oleh skrip pemasang?
+        if result is not None:
+            root.after(300, lambda: self._show_update_result(*result))
+        if (self.settings.get("check_updates", True) and not os.environ.get(updater.NO_CHECK_ENV)
+                and not os.environ.get("COLLECT_FILES_PLUS_AUTOCLOSE_MS")):
+            root.after(1500, self.check_updates)
 
     # ------------------------------------------------------------ UI
 
@@ -250,6 +259,7 @@ class App:
         pad = {"padx": 6, "pady": 4}
         top = ttk.Frame(self.root)
         top.pack(fill="x", padx=8, pady=(8, 2))
+        self._top = top
         ttk.Label(top, text="Project (.aep)").grid(row=0, column=0, sticky="w", **pad)
         ttk.Entry(top, textvariable=self.var_aep).grid(row=0, column=1, sticky="ew", **pad)
         ttk.Button(top, text=_("Pilih..."), command=self.choose_aep).grid(row=0, column=2, **pad)
@@ -260,6 +270,8 @@ class App:
         self.lang_box.set(LANGS[get_language()])
         self.lang_box.bind("<<ComboboxSelected>>", self._on_lang_selected)
         self.lang_box.pack(side="left")
+        ttk.Button(langf, text=_("Cek update"), command=lambda: self.check_updates(manual=True)).pack(
+            side="left", padx=(8, 0))
         ttk.Label(top, text=_("Folder tujuan")).grid(row=1, column=0, sticky="w", **pad)
         ttk.Entry(top, textvariable=self.var_dest).grid(row=1, column=1, sticky="ew", **pad)
         ttk.Button(top, text=_("Pilih..."), command=self.choose_dest).grid(row=1, column=2, **pad)
@@ -384,7 +396,15 @@ class App:
         self.progress = ttk.Progressbar(bottom, mode="indeterminate", length=self.px(160))
         self.progress.pack(side="left", padx=8)
         ttk.Label(bottom, textvariable=self.var_status).pack(side="left", padx=4, fill="x", expand=True)
-        self._frames = [top, self.nb, bottom]
+        # bar pemberitahuan update (ditampilkan kalau ada versi baru)
+        self.update_bar = ttk.Frame(self.root)
+        self.update_label = ttk.Label(self.update_bar, text="")
+        self.update_label.pack(side="left", padx=(4, 10))
+        self.btn_update = ttk.Button(self.update_bar, text=_("Update sekarang"), command=self.start_update)
+        self.btn_update.pack(side="left", padx=2)
+        ttk.Button(self.update_bar, text=_("Lihat perubahan"), command=self.open_release_page).pack(side="left", padx=2)
+        ttk.Button(self.update_bar, text=_("Tutup"), command=self.hide_update_bar).pack(side="left", padx=2)
+        self._frames = [self.update_bar, top, self.nb, bottom]
 
     # ------------------------------------------------------- aksi
 
@@ -552,6 +572,96 @@ class App:
         if self.last_folder is not None:
             self.btn_open.configure(state="normal")
         self._show_hint()
+        if self.update_info is not None and not self.update_dismissed:
+            self._show_update_bar()
+
+    # ------------------------------------------------- update
+
+    def check_updates(self, manual: bool = False) -> None:
+        """Cek rilis terbaru di GitHub di thread latar (tidak menahan jendela)."""
+        kind = "manual" if manual else "auto"
+
+        def job() -> None:
+            try:
+                self.events.put(("update-check", kind, (updater.check_latest(), "")))
+            except Exception as exc:  # noqa: BLE001 - jaringan mati dsb.
+                self.events.put(("update-check", kind, (None, str(exc) or type(exc).__name__)))
+
+        if manual:
+            self.var_status.set(_("Mengecek update..."))
+        threading.Thread(target=job, daemon=True).start()
+
+    def _on_update_check(self, manual: bool, info, error: str) -> None:
+        if manual:
+            self.var_status.set("")
+        if error:
+            if manual:
+                messagebox.showwarning(APP_TITLE, _("Tidak bisa mengecek update:\n%s") % error)
+            return
+        if info is None:
+            if manual:
+                messagebox.showinfo(APP_TITLE, _("Belum ada rilis di GitHub."))
+            return
+        if info.newer:
+            self.update_info = info
+            self.update_dismissed = False
+            self._show_update_bar()
+        elif manual:
+            messagebox.showinfo(APP_TITLE, _("Kamu sudah memakai versi terbaru (%s).") % __version__)
+
+    def _show_update_bar(self) -> None:
+        info = self.update_info
+        if info is None:
+            return
+        self.update_label.configure(text=_("Versi baru %s tersedia (kamu memakai %s).") % (info.version, __version__))
+        self.btn_update.configure(text=_("Update sekarang") if updater.can_self_update() and info.asset_url
+                                  else _("Download"))
+        self.update_bar.pack(fill="x", padx=8, pady=(8, 0), before=self._top)
+
+    def hide_update_bar(self) -> None:
+        self.update_dismissed = True
+        self.update_bar.pack_forget()
+
+    def open_release_page(self) -> None:
+        webbrowser.open(self.update_info.page if self.update_info is not None else updater.RELEASES_PAGE)
+
+    def start_update(self) -> None:
+        info = self.update_info
+        if info is None:
+            return
+        if not (updater.can_self_update() and info.asset_url):
+            self.open_release_page()          # macOS / dari source / folder tidak bisa ditulisi
+            return
+        if self._busy_now():
+            return
+        if not messagebox.askyesno(APP_TITLE, _("Download dan pasang versi %s sekarang?\n\nAplikasi akan ditutup "
+                                                "lalu dibuka lagi otomatis.") % info.version):
+            return
+        self._run("update", self._job_update, info)
+
+    def _job_update(self, info):
+        import tempfile
+        from .collector import Cancelled
+        from .report import fmt_bytes
+        tmp = Path(tempfile.mkdtemp(prefix="CollectFilesPlus-update-"))
+        last = [0]
+
+        def prog(done: int, total: int) -> None:
+            if done - last[0] >= (1 << 19) or done == total:
+                last[0] = done
+                self._progress(_("Mengunduh update: %s dari %s") % (fmt_bytes(done), fmt_bytes(total) if total else "?"))
+        try:
+            zip_path = updater.download(info, tmp, progress=prog, cancel=self.cancel)
+        except updater.UpdateCancelled:
+            raise Cancelled()
+        self._progress(_("Menyiapkan update..."))
+        return tmp, updater.extract_app(zip_path, tmp / "baru"), info.version
+
+    def _show_update_result(self, ok: bool, detail: str) -> None:
+        if ok:
+            messagebox.showinfo(APP_TITLE, _("Update berhasil. Sekarang memakai versi %s.") % (detail or __version__))
+        else:
+            messagebox.showwarning(APP_TITLE, _("Update gagal, versi lama tetap dipakai.\nCatatan: %s") % detail)
 
     # ------------------------------------------------- drag & drop, batch
 
@@ -764,6 +874,9 @@ class App:
                 elif ev == "item":
                     i, values = payload
                     self.batch_tree.set_row(str(i), values)
+                elif ev == "update-check":
+                    info, error = payload
+                    self._on_update_check(kind == "manual", info, error)
                 elif ev == "error":
                     self._busy(False)
                     self._log("ERROR: " + payload)
@@ -797,6 +910,16 @@ class App:
             self.progress.stop()
 
     def _done(self, kind: str, payload) -> None:
+        if kind == "update":
+            tmp, new_dir, version = payload
+            try:
+                updater.launch_apply(new_dir, tmp, version)
+            except Exception as exc:  # noqa: BLE001
+                messagebox.showerror(APP_TITLE, _("Gagal memulai update: %s") % exc)
+                return
+            self._save_settings(None)
+            self.root.destroy()                 # skrip pemasang menunggu aplikasi tertutup
+            return
         if kind == "load":
             self.aep = payload
             self._fill_comps()

@@ -31,7 +31,10 @@ def build():
                 master.children_list.append(self)
 
         def pack(self, **kw):
-            pass
+            self.packed = True
+
+        def pack_forget(self):
+            self.packed = False
 
         def destroy(self):
             self.destroyed = True
@@ -282,11 +285,12 @@ def build():
     filedialog.askdirectory = lambda **kw: filedialog.next_dir
 
     messagebox.log = []
+    messagebox.answer_yes = False          # jawaban untuk askyesno
 
     def _rec(kind):
         def f(title, msg, **kw):
             messagebox.log.append((kind, msg))
-            return False
+            return messagebox.answer_yes if kind == "askyesno" else None
         return f
 
     for kind in ("showerror", "showinfo", "showwarning", "askyesno"):

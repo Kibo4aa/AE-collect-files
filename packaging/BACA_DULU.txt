@@ -36,6 +36,12 @@ BANYAK PROJECT SEKALIGUS (BATCH)
 - Satu project gagal tidak menghentikan project lain.
 - Versi command line: collect-files-plus.exe collect a.aep b.aep -o D:\Hasil
 
+UPDATE
+- Saat dibuka, aplikasi mengecek versi terbaru di GitHub. Kalau ada,
+  muncul bar "Versi baru ... tersedia": klik "Update sekarang". Aplikasi
+  mengunduh, mengganti filenya sendiri, lalu terbuka lagi. Kalau gagal,
+  versi lama dikembalikan. Cek manual: tombol "Cek update" di kanan atas.
+
 CATATAN
 - Windows SmartScreen: klik "More info" lalu "Run anyway"
   (exe belum punya code signing).

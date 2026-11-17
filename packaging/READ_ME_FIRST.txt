@@ -35,6 +35,13 @@ MANY PROJECTS AT ONCE (BATCH)
 - One failing project does not stop the others.
 - Command line: collect-files-plus.exe --lang en collect a.aep b.aep -o D:\Output
 
+UPDATES
+- On start the app checks GitHub for a newer version. If there is one,
+  a "New version ... available" bar appears: click "Update now". The app
+  downloads it, replaces its own files and reopens. If anything fails,
+  the old version is restored. Manual check: "Check for updates" button
+  at the top right.
+
 NOTES
 - Windows SmartScreen: click "More info", then "Run anyway"
   (the exe is not code-signed yet).

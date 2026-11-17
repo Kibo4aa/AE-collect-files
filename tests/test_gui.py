@@ -280,6 +280,111 @@ def test_gui_language_defaults(gui, tmp_path, monkeypatch):
     assert i18n.get_language() == "en" and app.lang_box.get() == "English"
 
 
+def _wait_update_event(app, attr="update_info", tries=200):
+    import time
+    for _i in range(tries):
+        app._poll()
+        if getattr(app, attr):
+            return
+        time.sleep(0.01)
+
+
+def test_gui_update_banner_and_install(gui, tmp_path, monkeypatch):
+    gui, mods = gui
+    from collect_files_plus import updater
+    info = updater.UpdateInfo("9.9.0", "v9.9.0", "https://github.com/Kibo4aa/AE-collect-files/releases/tag/v9.9.0",
+                              asset_name="u.zip", asset_url="https://example.invalid/u.zip")
+    monkeypatch.setattr(updater, "check_latest", lambda timeout=10.0: info)
+    opened = []
+    monkeypatch.setattr(gui.webbrowser, "open", lambda url: opened.append(url))
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    assert not getattr(app.update_bar, "packed", False)
+    app.check_updates()
+    _wait_update_event(app)
+    assert app.update_bar.packed
+    assert app.update_label.kw["text"] == "Versi baru 9.9.0 tersedia (kamu memakai 1.0.0)."
+    assert app.btn_update.kw["text"] == "Download"           # dari source: tidak bisa ganti diri sendiri
+    app.start_update()
+    assert opened == [info.page]
+
+    # build exe Windows: download -> extract -> skrip pemasang -> aplikasi ditutup
+    monkeypatch.setattr(updater, "can_self_update", lambda: True)
+    calls = []
+    monkeypatch.setattr(updater, "download", lambda i, d, progress=None, cancel=None:
+                        (progress(10, 20), progress(20, 20), calls.append(("dl", d)), d / "u.zip")[-1])
+    monkeypatch.setattr(updater, "extract_app", lambda z, d: calls.append(("ex", z)) or d / "CollectFilesPlus")
+    monkeypatch.setattr(updater, "launch_apply", lambda new, tmp, ver: calls.append(("apply", new, tmp, ver)))
+    app._show_update_bar()
+    assert app.btn_update.kw["text"] == "Update sekarang"
+    app.start_update()                                       # dijawab "tidak" -> tidak ada apa-apa
+    assert app.worker is None and not calls
+    mods["tkinter.messagebox"].answer_yes = True
+    app.start_update()
+    _finish(app)
+    kinds = [c[0] for c in calls]
+    assert kinds == ["dl", "ex", "apply"] and calls[2][3] == "9.9.0"
+    assert calls[2][1] == calls[2][2] / "baru" / "CollectFilesPlus"
+    assert root.destroyed
+
+
+def test_gui_update_manual_messages(gui, monkeypatch):
+    gui, mods = gui
+    from collect_files_plus import updater
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    log = mods["tkinter.messagebox"].log
+    cases = [(lambda timeout=10.0: updater.UpdateInfo("1.0.0", "v1.0.0", "p"), "sudah memakai versi terbaru"),
+             (lambda timeout=10.0: None, "Belum ada rilis"),
+             (lambda timeout=10.0: (_ for _ in ()).throw(OSError("offline")), "Tidak bisa mengecek update")]
+    for fn, expect in cases:
+        monkeypatch.setattr(updater, "check_latest", fn)
+        n = len(log)
+        app.check_updates(manual=True)
+        for _i in range(200):
+            app._poll()
+            if len(log) > n:
+                break
+            __import__("time").sleep(0.01)
+        assert expect in log[-1][1], log[-1]
+    assert app.update_info is None and not getattr(app.update_bar, "packed", False)
+
+
+def test_gui_update_bar_hidden_stays_hidden_after_language_switch(gui, monkeypatch):
+    gui, mods = gui
+    from collect_files_plus import updater
+    monkeypatch.setattr(updater, "check_latest",
+                        lambda timeout=10.0: updater.UpdateInfo("9.9.0", "v9.9.0", "p", asset_url="u"))
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    app.check_updates()
+    _wait_update_event(app)
+    app.lang_box.choose("English")
+    assert app.update_bar.packed and app.update_label.kw["text"] == "New version 9.9.0 is available (you have 1.0.0)."
+    app.hide_update_bar()
+    app.lang_box.choose("Bahasa Indonesia")
+    assert not getattr(app.update_bar, "packed", False)
+
+
+def test_gui_update_startup(gui, monkeypatch):
+    gui, mods = gui
+    from collect_files_plus import updater
+    monkeypatch.delenv(updater.NO_CHECK_ENV)
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    assert app.check_updates in root.after_calls             # cek otomatis saat dibuka
+    monkeypatch.setenv(updater.NO_CHECK_ENV, "1")
+    monkeypatch.setenv(updater.RESULT_ENV, "ok:9.9.0")       # dibuka ulang oleh skrip pemasang
+    root = mods["tkinter"].Tk()
+    gui.App(root)
+    for fn in list(root.after_calls):
+        if getattr(fn, "__name__", "") == "<lambda>":
+            fn()
+    assert any(k == "showinfo" and "Update berhasil" in m and "9.9.0" in m for k, m in mods["tkinter.messagebox"].log)
+    import os
+    assert updater.RESULT_ENV not in os.environ
+
+
 @pytest.fixture(scope="module")
 def real_root():
     """Satu jendela Tk asli untuk semua test di modul ini, seperti aplikasinya
@@ -344,6 +449,14 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         app.change_language("id")
         root.update()
         assert app.nb.tab(0, "text") == "1. Comp & opsi"
+        from collect_files_plus import updater
+        app.update_info = updater.UpdateInfo("9.9.0", "v9.9.0", "p", asset_url="u")
+        app._show_update_bar()                     # bar update dengan widget asli
+        root.update()
+        assert app.update_bar.winfo_manager() == "pack"
+        app.hide_update_bar()
+        root.update()
+        assert app.update_bar.winfo_manager() == ""
         app.start_collect()
         _finish(app)
         root.update()
