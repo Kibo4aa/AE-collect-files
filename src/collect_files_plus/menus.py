@@ -14,7 +14,8 @@ meninggalkan modul yang terikat ke tiruan itu.
 
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+import sys
+from typing import Callable, List, Optional, Tuple
 
 CHECK = "✓"
 BULLET = "•"
@@ -28,6 +29,35 @@ def is_dark(color: str) -> bool:
         return 0.299 * r + 0.587 * g + 0.114 * b < 128
     except (ValueError, IndexError):
         return False
+
+
+def work_area(x: int, y: int) -> Optional[Tuple[int, int, int, int]]:
+    """Area kerja (kiri, atas, kanan, bawah) monitor tempat titik (x, y) berada, tanpa taskbar.
+    Penting kalau monitor kedua ada di kiri/atas monitor utama (koordinatnya negatif)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
+                        ("dwFlags", wintypes.DWORD)]
+
+        user32 = ctypes.WinDLL("user32")
+        user32.MonitorFromPoint.restype = wintypes.HANDLE
+        user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        user32.GetMonitorInfoW.restype = wintypes.BOOL
+        user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MONITORINFO)]
+        monitor = user32.MonitorFromPoint(wintypes.POINT(int(x), int(y)), 2)    # MONITOR_DEFAULTTONEAREST
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(MONITORINFO)
+        if monitor and user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            r = info.rcWork
+            return r.left, r.top, r.right, r.bottom
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 
 class FlyoutMenu:
@@ -178,12 +208,12 @@ class FlyoutMenu:
 
         win.update_idletasks()
         w, h = win.winfo_reqwidth(), win.winfo_reqheight()
-        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-        if x + w > sw:                                    # tidak keluar layar
-            x = parent.win.winfo_rootx() - w if parent is not None and parent.win is not None else sw - w
-        if y + h > sh:
-            y = sh - h
-        win.geometry("+%d+%d" % (max(0, x), max(0, y)))
+        left, top, right, bottom = work_area(x, y) or (0, 0, win.winfo_screenwidth(), win.winfo_screenheight())
+        if x + w > right:                                 # tidak keluar dari monitornya
+            x = parent.win.winfo_rootx() - w if parent is not None and parent.win is not None else right - w
+        if y + h > bottom:
+            y = bottom - h
+        win.geometry("+%d+%d" % (max(left, x), max(top, y)))
         win.deiconify()
         win.lift()
         if parent is None:                                # menu paling atas: pegang mouse & keyboard

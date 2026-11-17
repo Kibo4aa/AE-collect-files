@@ -1,5 +1,11 @@
 Collect Files for After Effects **without opening After Effects**: the footage, fonts and plugin files a project actually uses are gathered into one folder.
 
+### What's new in 1.1.1
+
+- **Dark mode fixed:** the menu bar, the drop-down menus and the message boxes now follow the dark theme. No more white menu bar, white menu borders or white dialogs.
+- Menus work with the mouse and the keyboard (Alt+F, Alt+S, Alt+H, arrow keys, Enter, Esc). Clicking outside closes a menu, and clicking another menu while one is open switches to it.
+- Changing the theme updates the whole window at once.
+
 ### What's new in 1.1.0
 
 - **New look:** a modern light/dark theme that follows Windows, a menu bar (File, Settings, Help), colored statuses, item counts on the tabs, tooltips for long paths, a right-click menu in the Batch list and keyboard shortcuts (Ctrl+O, F5, Ctrl+Enter, Esc, F1). The window remembers its size.
