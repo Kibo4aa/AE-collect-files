@@ -401,6 +401,9 @@ def install(monkeypatch):
     mods = build()
     for name, mod in mods.items():
         monkeypatch.setitem(sys.modules, name, mod)
+    # tema Sun Valley butuh Tk asli; jangan sampai sv_ttk ter-import dengan tkinter tiruan ini
+    # (modulnya akan tersimpan dan merusak test Tk asli berikutnya)
+    monkeypatch.setitem(sys.modules, "sv_ttk", None)
     monkeypatch.delitem(sys.modules, "collect_files_plus.gui", raising=False)
     import collect_files_plus.gui as gui  # noqa: E402
     return gui, mods

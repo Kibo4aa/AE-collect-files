@@ -109,8 +109,8 @@ def _has_family(root, family: str) -> bool:
             from tkinter import font as tkfont
             f = tkfont.Font(root=root, family=family, size=10)
             _has[family] = str(f.actual("family")).lower() == family.lower()
-        except Exception:  # noqa: BLE001
-            _has[family] = False
+        except Exception:  # noqa: BLE001 - tidak disimpan: bisa jadi hanya Tk belum siap
+            return False
     return _has[family]
 
 
