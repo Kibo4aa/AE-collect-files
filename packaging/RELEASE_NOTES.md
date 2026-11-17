@@ -11,10 +11,10 @@ Collect Files untuk After Effects **tanpa membuka After Effects**: footage, font
 - **macOS**: kalau muncul *"app is damaged"*, jalankan `xattr -dr com.apple.quarantine CollectFilesPlus.app`.
 - Script JSX untuk dijalankan dari dalam After Effects ada di folder `jsx` di dalam zip.
 
-Panduan lengkap ada di [README](https://github.com/Kibo4aa/AE-collect-files#readme), dan petunjuk singkat di `BACA_DULU.txt` di dalam zip.
+Petunjuk singkat ada di `BACA_DULU.txt` di dalam zip.
 
 **Penting:** copy file plugin tidak ikut memindahkan lisensinya. Plugin berbayar tetap butuh installer dan aktivasi resmi di komputer tujuan.
 
 ---
 
-*English: Collect footage, fonts and only the plugin files your After Effects project actually uses, straight from the .aep, without opening After Effects. Download the zip for your system above. See the README for details.*
+*English: Collect footage, fonts and only the plugin files your After Effects project actually uses, straight from the .aep, without opening After Effects. Download the zip for your system above.*
