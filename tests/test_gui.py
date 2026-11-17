@@ -280,20 +280,35 @@ def test_gui_language_defaults(gui, tmp_path, monkeypatch):
     assert i18n.get_language() == "en" and app.lang_box.get() == "English"
 
 
-def _real_root():
+@pytest.fixture(scope="module")
+def real_root():
+    """Satu jendela Tk asli untuk semua test di modul ini, seperti aplikasinya
+    (membuat interpreter Tk kedua dalam satu proses tidak andal di Windows)."""
     try:
         import tkinter as tk
     except ImportError:
         pytest.skip("tkinter tidak tersedia")
     try:
-        return tk.Tk()
+        root = tk.Tk()
     except tk.TclError as exc:
         pytest.skip("tidak ada layar untuk Tk: %s" % exc)
+    yield root
+    try:
+        root.destroy()
+    except Exception:  # noqa: BLE001
+        pass
 
 
-def test_real_tk_smoke(tmp_path, monkeypatch):
+def _clear(root):
+    for w in root.winfo_children():
+        w.destroy()
+    root.update()
+
+
+def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
     """Jalan di CI (Windows/macOS, Linux via xvfb): widget Tk asli dibuat dan alur dasar jalan."""
-    root = _real_root()
+    root = real_root
+    _clear(root)
     try:
         sys.modules.pop("collect_files_plus.gui", None)
         import collect_files_plus.gui as real_gui
@@ -335,7 +350,7 @@ def test_real_tk_smoke(tmp_path, monkeypatch):
         assert app.result is not None and app.result.saved_ok, shown
         assert not [s for s in shown if s[0] == "showerror"], shown
     finally:
-        root.destroy()
+        _clear(root)
 
 
 def _send_drop(hwnd, files):
@@ -367,8 +382,9 @@ def _send_drop(hwnd, files):
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="drag & drop Explorer khusus Windows")
-def test_real_windows_drag_and_drop(tmp_path, monkeypatch):
-    root = _real_root()
+def test_real_windows_drag_and_drop(real_root, tmp_path, monkeypatch):
+    root = real_root
+    _clear(root)
     try:
         sys.modules.pop("collect_files_plus.gui", None)
         import collect_files_plus.gui as real_gui
@@ -399,4 +415,4 @@ def test_real_windows_drag_and_drop(tmp_path, monkeypatch):
         assert [p.name for p in app.batch_paths] == ["Proyek Saya.aep", "Kedua Proyek.aep"]
         assert str(app.nb.select()) == str(app.batch_tab)
     finally:
-        root.destroy()
+        _clear(root)
