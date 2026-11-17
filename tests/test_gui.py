@@ -303,7 +303,7 @@ def test_gui_update_banner_and_install(gui, tmp_path, monkeypatch):
     app.check_updates()
     _wait_update_event(app)
     assert app.update_bar.packed
-    assert app.update_label.kw["text"] == "Versi baru 9.9.0 tersedia (kamu memakai 1.0.0)."
+    assert app.update_label.kw["text"] == "Versi baru 9.9.0 tersedia (kamu memakai %s)." % gui.__version__
     assert app.btn_update.kw["text"] == "Download"           # dari source: tidak bisa ganti diri sendiri
     app.start_update()
     assert opened == [info.page]
@@ -334,7 +334,8 @@ def test_gui_update_manual_messages(gui, monkeypatch):
     root = mods["tkinter"].Tk()
     app = gui.App(root)
     log = mods["tkinter.messagebox"].log
-    cases = [(lambda timeout=10.0: updater.UpdateInfo("1.0.0", "v1.0.0", "p"), "sudah memakai versi terbaru"),
+    cases = [(lambda timeout=10.0: updater.UpdateInfo(gui.__version__, "v" + gui.__version__, "p"),
+              "sudah memakai versi terbaru"),
              (lambda timeout=10.0: None, "Belum ada rilis"),
              (lambda timeout=10.0: (_ for _ in ()).throw(OSError("offline")), "Tidak bisa mengecek update")]
     for fn, expect in cases:
@@ -360,7 +361,8 @@ def test_gui_update_bar_hidden_stays_hidden_after_language_switch(gui, monkeypat
     app.check_updates()
     _wait_update_event(app)
     app.lang_box.choose("English")
-    assert app.update_bar.packed and app.update_label.kw["text"] == "New version 9.9.0 is available (you have 1.0.0)."
+    assert app.update_bar.packed
+    assert app.update_label.kw["text"] == "New version 9.9.0 is available (you have %s)." % gui.__version__
     app.hide_update_bar()
     app.lang_box.choose("Bahasa Indonesia")
     assert not getattr(app.update_bar, "packed", False)
@@ -466,8 +468,9 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         _clear(root)
 
 
-def _send_drop(hwnd, files):
-    """Kirim WM_DROPFILES seperti Explorer (memori HDROP berisi daftar file)."""
+def _post_drop(hwnd, files):
+    """Kirim WM_DROPFILES seperti Explorer: memori HDROP berisi daftar file, lewat PostMessage
+    (diproses nanti oleh event loop Tk, persis seperti drop sungguhan)."""
     import ctypes
     from ctypes import wintypes
 
@@ -482,8 +485,8 @@ def _send_drop(hwnd, files):
     k32.GlobalLock.restype = ctypes.c_void_p
     k32.GlobalLock.argtypes = [ctypes.c_void_p]
     k32.GlobalUnlock.argtypes = [ctypes.c_void_p]
-    u32.SendMessageW.restype = ctypes.c_ssize_t
-    u32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    u32.PostMessageW.restype = wintypes.BOOL
+    u32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
     data = ("\0".join(files) + "\0\0").encode("utf-16-le")
     head = DROPFILES(ctypes.sizeof(DROPFILES), wintypes.POINT(0, 0), False, True)
     h = k32.GlobalAlloc(0x0042, ctypes.sizeof(head) + len(data))   # GMEM_MOVEABLE | GMEM_ZEROINIT
@@ -491,7 +494,7 @@ def _send_drop(hwnd, files):
     ctypes.memmove(p, ctypes.byref(head), ctypes.sizeof(head))
     ctypes.memmove(p + ctypes.sizeof(head), data, len(data))
     k32.GlobalUnlock(h)
-    u32.SendMessageW(hwnd, 0x0233, h, 0)     # handler memanggil DragFinish (memori dibebaskan di sana)
+    assert u32.PostMessageW(hwnd, 0x0233, h, 0)   # handler memanggil DragFinish (memori dibebaskan di sana)
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="drag & drop Explorer khusus Windows")
@@ -517,15 +520,31 @@ def test_real_windows_drag_and_drop(real_root, tmp_path, monkeypatch):
         app = real_gui.App(root)
         assert app.dnd_ok, "drag & drop tidak aktif"
         hwnd = dnd._hooks[-1].hwnd
-        _send_drop(hwnd, [str(proj)])              # satu file -> dibuka sebagai project
-        root.update()
+
+        def run_mainloop(ms):
+            root.after(ms, root.quit)
+            root.mainloop()
+
+        # drop datang saat mainloop berjalan, persis seperti file dari Explorer
+        root.after(50, lambda: _post_drop(hwnd, [str(proj)]))
+        run_mainloop(1200)
+        assert app.worker is not None, "drop satu file tidak diproses"
         _finish(app)
         root.update()
         assert app.aep is not None and app.var_aep.get() == str(proj)
 
-        _send_drop(hwnd, [str(proj), str(other)])  # banyak file -> tab Batch
-        root.update()
+        root.after(50, lambda: _post_drop(hwnd, [str(proj), str(other)]))
+        run_mainloop(1200)
         assert [p.name for p in app.batch_paths] == ["Proyek Saya.aep", "Kedua Proyek.aep"]
         assert str(app.nb.select()) == str(app.batch_tab)
+
+        # drop berulang-ulang + interaksi lain tetap aman
+        for i in range(5):
+            root.after(20 * i + 10, lambda: _post_drop(hwnd, [str(other)]))
+        root.after(150, lambda: app.change_language("en"))
+        run_mainloop(1000)
+        assert app.nb.tab(0, "text") == "1. Comps & options"
+        assert len(app.batch_paths) == 2
+        app.change_language("id")
     finally:
         _clear(root)

@@ -1,5 +1,9 @@
 Collect Files for After Effects **without opening After Effects**: the footage, fonts and plugin files a project actually uses are gathered into one folder.
 
+### What's new in 1.0.1
+
+- Fixed: dropping files onto the app window made the app close.
+
 ### Download
 
 | System | File |

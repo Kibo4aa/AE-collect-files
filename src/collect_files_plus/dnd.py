@@ -94,16 +94,18 @@ if sys.platform == "win32":
 
 def enable(widget, callback: Callable[[List[str]], None]) -> Optional[int]:
     """Aktifkan drop file ke `widget` (biasanya jendela utama). Mengembalikan HWND, atau
-    None kalau tidak didukung. Callback dipanggil di thread Tk dengan daftar path."""
+    None kalau tidak didukung.
+
+    PENTING: callback dipanggil langsung dari window procedure, di tengah event loop Tk.
+    Callback TIDAK BOLEH memanggil fungsi Tk/tkinter apa pun (termasuk after/after_idle):
+    _tkinter tidak tahan dipanggil ulang dari situ dan Python bisa berhenti mendadak.
+    Cukup simpan daftar path (mis. queue.Queue.put) lalu proses dari loop Tk biasa.
+    """
     if sys.platform != "win32":
         return None
     widget.update_idletasks()
     hwnd = int(widget.winfo_id())
     if not hwnd or not _user32.IsWindow(hwnd):
         return None
-
-    def deliver(files: List[str]) -> None:
-        widget.after_idle(lambda: callback(files))
-
-    _hooks.append(_Hook(hwnd, deliver))
+    _hooks.append(_Hook(hwnd, callback))
     return hwnd

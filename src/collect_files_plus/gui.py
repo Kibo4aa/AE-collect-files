@@ -669,7 +669,8 @@ class App:
         try:
             if not dnd.available() or not hasattr(self.root, "winfo_id"):
                 return False
-            return dnd.enable(self.root, self.on_drop) is not None
+            # jangan panggil Tk dari callback drop: cukup masukkan ke antrean, diproses _poll
+            return dnd.enable(self.root, lambda files: self.events.put(("drop", "", list(files)))) is not None
         except Exception:  # noqa: BLE001 - tanpa drag & drop aplikasi tetap jalan
             return False
 
@@ -874,6 +875,8 @@ class App:
                 elif ev == "item":
                     i, values = payload
                     self.batch_tree.set_row(str(i), values)
+                elif ev == "drop":
+                    self.on_drop(payload)
                 elif ev == "update-check":
                     info, error = payload
                     self._on_update_check(kind == "manual", info, error)
