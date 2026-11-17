@@ -1,0 +1,31 @@
+name: Screenshots
+
+# Jalankan manual: screenshot jendela aplikasi di Windows (tema terang/gelap, English/日本語/Indonesia)
+# untuk mengecek tampilan. Hasilnya ada di Artifacts.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pillow
+      - name: Screenshots
+        run: python packaging/screenshots.py shots
+      - uses: actions/upload-artifact@v7
+        with:
+          name: screenshots
+          path: shots/*.png
+          if-no-files-found: error
