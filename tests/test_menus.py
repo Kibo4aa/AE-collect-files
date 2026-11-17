@@ -10,6 +10,7 @@ def _event(x, y):
 def test_flyout_menu_mouse_keyboard_and_outside_click(monkeypatch):
     _gui, mods = fake_tkinter.install(monkeypatch)
     from collect_files_plus import menus
+    monkeypatch.setattr(menus, "work_area", lambda x, y: None)      # layar tiruan 1920x1080
     tk = mods["tkinter"]
     root = tk.Tk()
     ran = []
@@ -96,3 +97,17 @@ def test_flyout_menu_dark_colors(monkeypatch):
     separator = [w for w in inner.children_list if w.kw.get("height") == 1]
     assert len(separator) == 1 and separator[0].kw["background"] == "#4a4a4a"   # garis abu, bukan putih
     assert menus.is_dark("#2c2c2c") and not menus.is_dark("#f9f9f9")
+
+
+def test_flyout_menu_on_second_monitor(monkeypatch):
+    """Monitor kedua di kiri monitor utama (koordinat negatif): menu tetap di monitor itu."""
+    _gui, mods = fake_tkinter.install(monkeypatch)
+    from collect_files_plus import menus
+    monkeypatch.setattr(menus, "work_area", lambda x, y: (-1920, 0, 0, 1040) if x < 0 else (0, 0, 1920, 1040))
+    root = mods["tkinter"].Tk()
+    menu = menus.FlyoutMenu(root)
+    menu.add_command(label="Open")
+    menu.tk_popup(-1500, 300)
+    assert menu.win.geom == "+-1500+300"
+    menu.tk_popup(-50, 1000)                       # tepi kanan & bawah monitor kiri
+    assert menu.win.geom == "+-200+940"

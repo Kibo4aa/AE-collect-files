@@ -6,7 +6,17 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
+import faulthandler  # noqa: E402
+
 import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_hang():
+    """Test yang macet (mis. jendela Tk menunggu klik) dihentikan dengan traceback, bukan menggantung CI."""
+    faulthandler.dump_traceback_later(240, exit=True)
+    yield
+    faulthandler.cancel_dump_traceback_later()
 
 
 @pytest.fixture(autouse=True)

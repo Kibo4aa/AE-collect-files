@@ -354,6 +354,7 @@ def test_gui_dark_theme_menus_and_dialogs(gui, monkeypatch):
     """Tema gelap: menu bar dari tombol bertema, menu drop-down gelap, kotak pesan bertema (bukan putih)."""
     gui, mods = gui
     monkeypatch.setattr(gui.theme, "apply", lambda root, mode, scale=1.0: "light" if mode == "system" else mode)
+    monkeypatch.setattr(gui.App, "native_menus", property(lambda self: False))   # juga di macOS
     shown = []
     monkeypatch.setattr(gui.dialogs, "show", lambda root, title, text, kind="showinfo", dark=False, scale=1.0:
                         shown.append((kind, dark)) or True)
