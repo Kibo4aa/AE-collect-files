@@ -1,21 +1,28 @@
-Collect Files untuk After Effects **tanpa membuka After Effects**: footage, font, dan file plugin yang benar-benar dipakai project dikumpulkan ke satu folder.
+Collect Files for After Effects **without opening After Effects**: the footage, fonts and plugin files a project actually uses are gathered into one folder.
 
 ### Download
 
-| Sistem | File |
+| System | File |
 |---|---|
-| Windows 10/11 64-bit | `CollectFilesPlus-v…-windows-x64.zip` → extract → jalankan `CollectFilesPlus.exe` |
-| macOS Apple Silicon (eksperimental) | `CollectFilesPlus-v…-macos-arm64.zip` → extract → buka `CollectFilesPlus.app` |
+| Windows 10/11 64-bit | `CollectFilesPlus-v…-windows-x64.zip` → extract → run `CollectFilesPlus.exe` |
+| macOS Apple Silicon (experimental) | `CollectFilesPlus-v…-macos-arm64.zip` → extract → open `CollectFilesPlus.app` |
 
-- **Windows SmartScreen**: exe belum punya code signing, jadi klik **More info → Run anyway**.
-- **macOS**: kalau muncul *"app is damaged"*, jalankan `xattr -dr com.apple.quarantine CollectFilesPlus.app`.
-- Tampilan, laporan, dan CLI tersedia dalam **Bahasa Indonesia dan English** (pilih di kanan atas aplikasi).
-- Script JSX untuk dijalankan dari dalam After Effects ada di folder `jsx` di dalam zip.
+- **Windows SmartScreen:** the exe is not code-signed yet, so click **More info → Run anyway**.
+- **macOS:** if you see *"app is damaged"*, run `xattr -dr com.apple.quarantine CollectFilesPlus.app`.
+- **Updates:** the app checks for new versions when it starts. Click **Update now** to install them automatically.
 
-Petunjuk singkat ada di `BACA_DULU.txt` di dalam zip.
+### Features
 
-**Penting:** copy file plugin tidak ikut memindahkan lisensinya. Plugin berbayar tetap butuh installer dan aktivasi resmi di komputer tujuan.
+- Reads the `.aep` directly. After Effects does not need to be open.
+- Copies footage and relinks the project to it. Image sequences are copied in full and missing files are reported.
+- Collects the fonts used by text layers. Adobe Fonts are reported, not copied.
+- Copies **only the plugin files whose effects are actually used**, never whole vendor folders. Renamed effects are still recognized by their match name.
+- **Batch:** collect many projects at once into one destination folder. Add them by drag & drop or with the right-click **Send to** menu.
+- Writes `_report.txt` and `_effect_list.csv`, which lists every effect on every layer.
+- Your original `.aep` is never modified.
+- Available in **English and Indonesian**. Switch with "Bahasa / Language" at the top right.
+- A JSX script for running inside After Effects is in the `jsx` folder of the zip.
 
----
+Quick start: `READ_ME_FIRST.txt` inside the zip.
 
-*English: Collect footage, fonts and only the plugin files your After Effects project actually uses, straight from the .aep, without opening After Effects. Batch-collect many projects at once, drag & drop, and an English interface (switch with "Bahasa / Language"). Download the zip for your system above and read READ_ME_FIRST.txt.*
+**Important:** copying plugin files does not transfer their licenses. Paid plugins still need their official installer and activation on the target computer.
