@@ -135,29 +135,11 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $ver = "${{ steps.ver.outputs.version }}"
-          $name = "CollectFilesPlus-v$ver-${{ matrix.name }}"
-          # isi installer = folder zip + penanda "msi" (update di aplikasi lalu memakai installer baru)
-          $stage = Join-Path $env:RUNNER_TEMP "msi\CollectFilesPlus"
-          New-Item -ItemType Directory -Force (Split-Path $stage) | Out-Null
-          Copy-Item -Recurse dist\CollectFilesPlus $stage
-          Set-Content -LiteralPath (Join-Path $stage "install-type.txt") -Value "msi" -Encoding ascii
-          # WiX Toolset v5 (lisensi MS-RL)
-          dotnet tool install --global wix --version 5.0.2
-          if ($LASTEXITCODE -ne 0) { throw "install WiX gagal" }
-          $wix = Join-Path $env:USERPROFILE ".dotnet\tools\wix.exe"
-          & $wix --version
-          & $wix extension add -g WixToolset.UI.wixext/5.0.2
-          if ($LASTEXITCODE -ne 0) { throw "WiX UI extension gagal" }
-          function Build-Msi($version, $out) {
-            & $wix build packaging\installer.wxs -arch x64 -ext WixToolset.UI.wixext `
-              -d "Version=$version" -d "IconFile=packaging\icon.ico" -d "LicenseRtf=packaging\License.rtf" `
-              -bindpath "app=$stage" -o $out
-            if ($LASTEXITCODE -ne 0) { throw "wix build gagal ($version)" }
-          }
-          Build-Msi $ver "dist\$name.msi"
+          # skrip yang sama dengan build_msi.bat (WiX Toolset v5, lisensi MS-RL)
+          ./packaging/build_msi.ps1 -Version $ver
           # installer versi lebih tinggi, hanya untuk menguji update (tidak ikut dirilis)
-          Build-Msi "99.0.0" (Join-Path $env:RUNNER_TEMP "upgrade-test.msi")
-          Get-Item "dist\$name.msi"
+          ./packaging/build_msi.ps1 -Version "99.0.0" -OutDir $env:RUNNER_TEMP -Name "upgrade-test"
+          Get-Item "dist\CollectFilesPlus-v$ver-windows-x64.msi"
 
       - name: Uji installer .msi (Windows)
         if: runner.os == 'Windows'
