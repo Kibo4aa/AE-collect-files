@@ -1,7 +1,7 @@
 """Screenshot jendela aplikasi (Windows) untuk mengecek tampilan: tema terang/gelap, tiap bahasa.
 Dijalankan oleh workflow "Screenshots" di GitHub Actions; hasilnya ada di Artifacts.
 
-    python packaging/screenshots.py FOLDER_HASIL
+    python packaging/screenshots.py FOLDER_HASIL [SKALA]     (SKALA mis. 1.25 = simulasi layar 125%)
 """
 
 import ctypes
@@ -58,9 +58,12 @@ def main() -> int:
     for kind in ("showerror", "showinfo", "showwarning", "askyesno"):
         setattr(messagebox, kind, lambda *a, **kw: False)
 
+    scale = float(sys.argv[2]) if len(sys.argv) > 2 else 0.0
     root = tk.Tk()
+    if scale:                                   # simulasi layar dengan skala Windows 125%/150%
+        root.tk.call("tk", "scaling", scale * 96 / 72)
     app = gui.App(root)
-    root.geometry("+0+0")
+    prefix = "scale%d-" % round(scale * 100) if scale else ""
 
     def settle(seconds=0.6):
         end = time.time() + seconds
@@ -75,7 +78,7 @@ def main() -> int:
         root.lift()
         root.attributes("-topmost", True)
         settle(0.3)
-        ImageGrab.grab(bbox=window_rect(root), all_screens=True).save(out / (name + ".png"))
+        ImageGrab.grab(bbox=window_rect(root), all_screens=True).save(out / (prefix + name + ".png"))
         root.attributes("-topmost", False)
         print("saved", name)
 
@@ -87,6 +90,17 @@ def main() -> int:
     app.var_dest.set(str(tmp / "Output"))
     app.start_analyze()
     settle()
+    if scale:                                   # layar sempit: cukup cek tombol tetap terlihat
+        for tab, label in ((0, "comps"), (1, "plugins")):
+            app.nb.select(tab)
+            shot("light-en-%d-%s" % (tab + 1, label))
+        app.add_batch_paths([str(fx), str(other)])
+        shot("light-en-batch")
+        app.change_language("ja")
+        app.nb.select(0)
+        shot("light-ja-1-comps")
+        root.destroy()
+        return 0
     for theme in ("light", "dark"):
         app.var_theme.set(theme)
         app._on_theme_menu()

@@ -136,12 +136,12 @@ EN = {
     "1. Comp & opsi": "1. Comps & options",
     "Keterangan": "Info",
     "Yang dikumpulkan": "What to collect",
-    "Footage (copy + relink ke folder (Footage))": "Footage (copy + relink to the (Footage) folder)",
+    "Footage\n(copy + relink ke folder (Footage))": "Footage\n(copy + relink to the (Footage) folder)",
     "Buang comp & footage yang tidak dipakai\n(Reduce Project)": "Remove unused comps & footage\n(Reduce Project)",
     "Font yang dipakai text layer": "Fonts used by text layers",
     "Plugin pihak ketiga\n(hanya file plugin yang efeknya dipakai)":
         "Third-party plugins\n(only plugin files whose effects are used)",
-    "Lewati efek yang dimatikan (ikon fx mati)": "Skip effects that are switched off (fx off)",
+    "Lewati efek yang dimatikan\n(ikon fx mati)": "Skip effects that are switched off\n(fx off)",
     "Ikut file pendukung plugin\n(DLL/data di folder yang sama)": "Include plugin support files\n(DLLs/data in the same folder)",
     "Ikut animation preset (.ffx) yang\nnamanya sama dengan efek yang di-rename":
         "Include animation presets (.ffx)\nnamed like renamed effects",

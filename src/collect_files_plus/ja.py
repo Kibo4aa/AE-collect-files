@@ -140,12 +140,12 @@ JA = {
     "1. Comp & opsi": "1. コンポとオプション",
     "Keterangan": "情報",
     "Yang dikumpulkan": "収集する項目",
-    "Footage (copy + relink ke folder (Footage))": "フッテージ (コピーして (Footage) フォルダーに再リンク)",
+    "Footage\n(copy + relink ke folder (Footage))": "フッテージ\n(コピーして (Footage) フォルダーに再リンク)",
     "Buang comp & footage yang tidak dipakai\n(Reduce Project)": "未使用のコンポとフッテージを削除\n(プロジェクトを整理)",
     "Font yang dipakai text layer": "テキストレイヤーで使われているフォント",
     "Plugin pihak ketiga\n(hanya file plugin yang efeknya dipakai)":
         "サードパーティ製プラグイン\n(使われているエフェクトを含むファイルだけ)",
-    "Lewati efek yang dimatikan (ikon fx mati)": "オフのエフェクトはスキップ (fx スイッチがオフ)",
+    "Lewati efek yang dimatikan\n(ikon fx mati)": "オフのエフェクトはスキップ\n(fx スイッチがオフ)",
     "Ikut file pendukung plugin\n(DLL/data di folder yang sama)": "プラグインの付属ファイルも含める\n(同じフォルダーの DLL/データ)",
     "Ikut animation preset (.ffx) yang\nnamanya sama dengan efek yang di-rename":
         "アニメーションプリセット (.ffx) も含める\n(名前を変更したエフェクトと同名のもの)",

@@ -308,8 +308,14 @@ class App:
 
         self.scale = ui_scale(root)
         root.title("%s %s" % (APP_TITLE, __version__))
-        root.geometry("%dx%d" % self._saved_size())     # ukuran terakhir (posisi diatur Windows)
-        root.minsize(self.px(920), self.px(600))
+        w, h = self._saved_size()                       # ukuran terakhir, muat di layar
+        screen = self._screen()
+        if screen:                                      # di tengah layar utama
+            root.geometry("%dx%d+%d+%d" % (w, h, max(0, (screen[0] - w) // 2),
+                                            max(0, (screen[1] - h - self.px(100)) // 2)))
+        else:
+            root.geometry("%dx%d" % (w, h))
+        root.minsize(*self._min_size())
         if self.settings.get("maximized"):
             try:
                 root.state("zoomed")
@@ -359,16 +365,32 @@ class App:
     def px(self, n: float) -> int:
         return int(round(n * self.scale))
 
+    def _screen(self):
+        try:
+            return int(self.root.winfo_screenwidth()), int(self.root.winfo_screenheight())
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _min_size(self):
+        """Batas minimum jendela; di layar kecil (mis. laptop 1366x768 dengan skala 125%) ikut mengecil
+        supaya tombol di bawah tetap terlihat."""
+        w, h = self.px(920), self.px(600)
+        screen = self._screen()
+        if screen:
+            w = max(480, min(w, screen[0]))
+            h = max(400, min(h, screen[1] - self.px(100)))   # title bar + menu + taskbar
+        return w, h
+
     def _saved_size(self):
         """Ukuran jendela terakhir, tidak lebih besar dari layar dan tidak lebih kecil dari batas minimum."""
         m = re.match(r"^(\d{3,5})x(\d{3,5})", str(self.settings.get("geometry") or ""))
         w, h = (int(m.group(1)), int(m.group(2))) if m else (self.px(1100), self.px(740))
-        try:
-            w = min(w, int(self.root.winfo_screenwidth()))
-            h = min(h, int(self.root.winfo_screenheight()) - self.px(40))
-        except Exception:  # noqa: BLE001
-            pass
-        return max(w, self.px(920)), max(h, self.px(600))
+        screen = self._screen()
+        if screen:
+            w = min(w, screen[0])
+            h = min(h, screen[1] - self.px(100))
+        min_w, min_h = self._min_size()
+        return max(w, min_w), max(h, min_h)
 
     def _w(self, *widths: int) -> List[int]:
         return [self.px(w) for w in widths]
@@ -459,27 +481,27 @@ class App:
         # Tab 1: comp + opsi
         tab1 = ttk.Frame(self.nb, padding=6)
         add_tab(tab1, _("1. Comp & opsi"))
+        right = ttk.LabelFrame(tab1, text=_("Yang dikumpulkan"), padding=(10, 6))
+        right.pack(side="right", fill="y")
         left = ttk.Frame(tab1)
         left.pack(side="left", fill="both", expand=True, padx=(0, 6))
-        self.comp_hint = ttk.Label(left, text="", wraplength=self.px(620), justify="left")
-        self.comp_hint.pack(anchor="w", pady=(0, 4))
-        self.comp_tree = CheckTree(left, [_("Comp"), _("Keterangan")], self._w(380, 300), height=14)
-        self.comp_tree.pack(fill="both", expand=True, pady=4)
+        self.comp_hint = ttk.Label(left, text="", justify="left")
+        self.comp_hint.pack(anchor="w", fill="x", pady=(0, 4))
+        self._autowrap(self.comp_hint, pack=False)
         row = ttk.Frame(left)
-        row.pack(fill="x")
+        row.pack(side="bottom", fill="x")
         ttk.Button(row, text=_("Render Queue"), command=lambda: self.select_comps("rq")).pack(side="left", padx=(0, 4))
         ttk.Button(row, text=_("Comp aktif"), command=lambda: self.select_comps("active")).pack(side="left", padx=4)
         ttk.Button(row, text=_("Semua"), command=lambda: self.comp_tree.set_all(True)).pack(side="left", padx=4)
         ttk.Button(row, text=_("Kosongkan"), command=lambda: self.comp_tree.set_all(False)).pack(side="left", padx=4)
-
-        right = ttk.LabelFrame(tab1, text=_("Yang dikumpulkan"), padding=(10, 6))
-        right.pack(side="left", fill="y")
+        self.comp_tree = CheckTree(left, [_("Comp"), _("Keterangan")], self._w(340, 260), height=8)
+        self.comp_tree.pack(fill="both", expand=True, pady=4)
         opts = [
-            (self.opt_footage, _("Footage (copy + relink ke folder (Footage))")),
+            (self.opt_footage, _("Footage\n(copy + relink ke folder (Footage))")),
             (self.opt_reduce, _("Buang comp & footage yang tidak dipakai\n(Reduce Project)")),
             (self.opt_fonts, _("Font yang dipakai text layer")),
             (self.opt_plugins, _("Plugin pihak ketiga\n(hanya file plugin yang efeknya dipakai)")),
-            (self.opt_skip_off, _("Lewati efek yang dimatikan (ikon fx mati)")),
+            (self.opt_skip_off, _("Lewati efek yang dimatikan\n(ikon fx mati)")),
             (self.opt_support, _("Ikut file pendukung plugin\n(DLL/data di folder yang sama)")),
             (self.opt_presets, _("Ikut animation preset (.ffx) yang\nnamanya sama dengan efek yang di-rename")),
         ]
@@ -489,19 +511,18 @@ class App:
         # Tab 2: plugin
         tab2 = ttk.Frame(self.nb, padding=6)
         add_tab(tab2, _("2. Plugin"))
-        ttk.Label(tab2, text=_("File plugin yang akan dicopy. Klik kotak centang untuk memilih. "
-                               "\"(perkiraan)\" = tidak dicentang otomatis."),
-                  wraplength=self.px(980), justify="left").pack(anchor="w")
-        self.plugin_tree = CheckTree(tab2, [_("File plugin"), _("Efek yang dipakai"), _("Ukuran"), _("Cara ketemu")],
-                                     self._w(380, 340, 80, 220), height=14)
-        self.plugin_tree.pack(fill="both", expand=True, pady=4)
-        self.plugin_tree.on_change = self._update_plugin_total
+        self._autowrap(ttk.Label(tab2, text=_("File plugin yang akan dicopy. Klik kotak centang untuk memilih. "
+                                              "\"(perkiraan)\" = tidak dicentang otomatis."), justify="left"))
         row2 = ttk.Frame(tab2)
-        row2.pack(fill="x")
+        row2.pack(side="bottom", fill="x")
         ttk.Button(row2, text=_("Centang semua"), command=lambda: self.plugin_tree.set_all(True)).pack(side="left", padx=(0, 4))
         ttk.Button(row2, text=_("Hapus semua centang"), command=lambda: self.plugin_tree.set_all(False)).pack(side="left", padx=4)
         self.plugin_total = ttk.Label(row2, text="")
         self.plugin_total.pack(side="left", padx=12)
+        self.plugin_tree = CheckTree(tab2, [_("File plugin"), _("Efek yang dipakai"), _("Ukuran"), _("Cara ketemu")],
+                                     self._w(360, 320, 80, 220), height=8)
+        self.plugin_tree.pack(fill="both", expand=True, pady=4)
+        self.plugin_tree.on_change = self._update_plugin_total
 
         # Tab 3-5: font, footage, efek
         tab3 = ttk.Frame(self.nb, padding=6)
@@ -524,32 +545,31 @@ class App:
         tabb = ttk.Frame(self.nb, padding=6)
         add_tab(tabb, _("Batch (banyak project)"))
         self.batch_tab = tabb
-        ttk.Label(tabb, text=_("Collect banyak project sekaligus. Semua hasil masuk ke \"Folder tujuan\" di atas, "
-                               "tiap project ke folder <nama>_Collected sendiri.\nOpsi yang dicentang di tab "
-                               "\"1. Comp & opsi\" dipakai untuk semua project. File .aep atau folder juga bisa "
-                               "di-drag ke jendela ini."),
-                  justify="left", wraplength=self.px(980)).pack(anchor="w")
-        self.batch_tree = InfoTree(tabb, [_("Project"), _("Lokasi"), _("Comp"), _("Status"), _("Hasil")],
-                                   self._w(220, 300, 170, 300, 220))
-        self.batch_tree.pack(fill="both", expand=True, pady=4)
+        self._autowrap(ttk.Label(tabb, text=_("Collect banyak project sekaligus. Semua hasil masuk ke \"Folder tujuan\" "
+                                              "di atas, tiap project ke folder <nama>_Collected sendiri.\nOpsi yang "
+                                              "dicentang di tab \"1. Comp & opsi\" dipakai untuk semua project. File "
+                                              ".aep atau folder juga bisa di-drag ke jendela ini."), justify="left"))
+        rc = ttk.Frame(tabb)
+        rc.pack(side="bottom", fill="x", pady=(8, 0))
+        self.btn_batch = ttk.Button(rc, text=_("Collect semua project"), command=self.start_batch, style=self.accent)
+        self.btn_batch.pack(side="left")
+        rs = ttk.Frame(tabb)
+        rs.pack(side="bottom", fill="x", pady=(8, 0))
         rb = ttk.Frame(tabb)
-        rb.pack(fill="x")
+        rb.pack(side="bottom", fill="x")
         ttk.Button(rb, text=_("Tambah file .aep..."), command=self.batch_add_files).pack(side="left", padx=(0, 4))
         ttk.Button(rb, text=_("Tambah folder..."), command=self.batch_add_folder).pack(side="left", padx=4)
         ttk.Button(rb, text=_("Hapus yang dipilih"), command=self.batch_remove_selected).pack(side="left", padx=4)
         ttk.Button(rb, text=_("Kosongkan"), command=self.batch_clear).pack(side="left", padx=4)
         self.batch_count = ttk.Label(rb, text="")
         self.batch_count.pack(side="left", padx=12)
-        rs = ttk.Frame(tabb)
-        rs.pack(fill="x", pady=(8, 0))
         ttk.Label(rs, text=_("Comp yang dibaca:")).pack(side="left", padx=(0, 4))
         ttk.Radiobutton(rs, text=_("Otomatis (Render Queue, kalau kosong comp aktif, kalau tidak ada semua comp)"),
                         value="auto", variable=self.var_batch_scope).pack(side="left", padx=4)
         ttk.Radiobutton(rs, text=_("Semua comp"), value="all", variable=self.var_batch_scope).pack(side="left", padx=4)
-        rc = ttk.Frame(tabb)
-        rc.pack(fill="x", pady=(8, 0))
-        self.btn_batch = ttk.Button(rc, text=_("Collect semua project"), command=self.start_batch, style=self.accent)
-        self.btn_batch.pack(side="left")
+        self.batch_tree = InfoTree(tabb, [_("Project"), _("Lokasi"), _("Comp"), _("Status"), _("Hasil")],
+                                   self._w(200, 280, 170, 300, 220), height=8)
+        self.batch_tree.pack(fill="both", expand=True, pady=4)
 
         tab6 = ttk.Frame(self.nb, padding=6)
         add_tab(tab6, _("Log"))
@@ -557,7 +577,6 @@ class App:
         self.log.pack(fill="both", expand=True)
 
         bottom = ttk.Frame(self.root, padding=(8, 4, 8, 8))
-        bottom.pack(fill="x")
         self.btn_analyze = ttk.Button(bottom, text=_("Analisa"), command=self.start_analyze)
         self.btn_analyze.pack(side="left", padx=(0, 4))
         self.btn_collect = ttk.Button(bottom, text=_("Collect"), command=self.start_collect, style=self.accent)
@@ -567,14 +586,22 @@ class App:
         self.btn_open = ttk.Button(bottom, text=_("Buka folder hasil"), command=self.open_result,
                                    state="normal" if self.last_folder else "disabled")
         self.btn_open.pack(side="right")
-        self.progress = ttk.Progressbar(bottom, mode="indeterminate", length=self.px(170))
-        self.progress.pack(side="left", padx=10)
-        ttk.Label(bottom, textvariable=self.var_status).pack(side="left", fill="x", expand=True)
+        # progress bar hanya tampil saat ada proses (lihat _busy)
+        self.progress = ttk.Progressbar(bottom, mode="determinate", length=self.px(170))
+        ttk.Label(bottom, textvariable=self.var_status).pack(side="left", fill="x", expand=True, padx=(10, 0))
+        bottom.pack(side="bottom", fill="x", before=self.nb)   # tombol tetap terlihat walau jendela pendek
         self._frames = [self.update_bar, top, self.nb, bottom]
 
         self._bind_tree_actions()
         self._update_comp_hint()
         self._recolor()
+
+    @staticmethod
+    def _autowrap(label, pack: bool = True) -> None:
+        """Teks label membungkus mengikuti lebar jendela (dipasang di atas, selebar tab)."""
+        if pack:
+            label.pack(anchor="w", fill="x")
+        label.bind("<Configure>", lambda e: label.configure(wraplength=max(200, e.width - 4)), add="+")
 
     def _build_menu(self) -> None:
         bar = tk.Menu(self.root)
@@ -1233,6 +1260,8 @@ class App:
         self.btn_collect.configure(state=state)
         self.btn_batch.configure(state=state)
         self.btn_cancel.configure(state="normal" if busy else "disabled")
+        if busy:
+            self.progress.pack(side="right", padx=10, after=self.btn_open)
         if busy and determinate:
             self.progress.configure(mode="determinate", value=0)
         elif busy:
@@ -1241,6 +1270,7 @@ class App:
         else:
             self.progress.stop()
             self.progress.configure(mode="determinate", value=0)
+            self.progress.pack_forget()
 
     def _done(self, kind: str, payload) -> None:
         if kind == "update":

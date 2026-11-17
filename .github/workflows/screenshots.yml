@@ -28,7 +28,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e . pillow
       - name: Screenshots
-        run: python packaging/screenshots.py shots
+        run: |
+          python packaging/screenshots.py shots
+          python packaging/screenshots.py shots 1.25
       - name: Gambar di log (base64)
         if: inputs.log_images
         shell: python
