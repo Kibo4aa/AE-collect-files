@@ -1,0 +1,139 @@
+name: Build & Release
+
+# Tag vX.Y.Z -> build Windows + macOS, uji hasil build, lalu terbitkan GitHub Release.
+# Jalankan manual (workflow_dispatch) -> build + uji saja, hasilnya ada di Artifacts.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: windows-x64 }
+          - { os: macos-latest, name: macos-arm64 }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[build]"
+      - name: Versi
+        id: ver
+        shell: bash
+        run: |
+          v=$(python -c "import collect_files_plus as m; print(m.__version__)")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$v" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME tidak sama dengan __version__ ($v)"; exit 1
+          fi
+      - name: Build (PyInstaller)
+        run: python -m PyInstaller --noconfirm --clean packaging/CollectFilesPlus.spec
+
+      - name: Uji hasil build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $d = "dist\CollectFilesPlus"
+          & "$d\collect-files-plus.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "cli --version gagal" }
+          & "$d\collect-files-plus.exe" analyze tests\data\Property-01.aep --all > "$env:RUNNER_TEMP\analyze.txt"
+          if ($LASTEXITCODE -ne 0) { throw "cli analyze gagal" }
+          Get-Content "$env:RUNNER_TEMP\analyze.txt" -TotalCount 60
+          $proj = python packaging\smoke_project.py "$env:RUNNER_TEMP\smoke"
+          & "$d\collect-files-plus.exe" collect "$proj" --all -o "$env:RUNNER_TEMP\smoke-out"
+          if ($LASTEXITCODE -ne 0) { throw "cli collect gagal" }
+          $files = Get-ChildItem -Recurse -File "$env:RUNNER_TEMP\smoke-out" | ForEach-Object { $_.FullName }
+          $files
+          if (-not ($files -match "\(Footage\)")) { throw "footage tidak tercopy" }
+          $env:COLLECT_FILES_PLUS_AUTOCLOSE_MS = "4000"
+          & "$d\collect-files-plus.exe" gui
+          if ($LASTEXITCODE -ne 0) { throw "GUI (console) gagal" }
+          $p = Start-Process -FilePath "$d\CollectFilesPlus.exe" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(90000)) { $p.Kill(); throw "CollectFilesPlus.exe tidak menutup sendiri" }
+          if ($p.ExitCode -ne 0) { throw "CollectFilesPlus.exe exit code $($p.ExitCode)" }
+
+      - name: Uji hasil build (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          exe=dist/CollectFilesPlus.app/Contents/MacOS/CollectFilesPlus
+          "$exe" --version
+          "$exe" analyze tests/data/Property-01.aep --all > "$RUNNER_TEMP/analyze.txt"
+          head -60 "$RUNNER_TEMP/analyze.txt"
+          proj=$(python packaging/smoke_project.py "$RUNNER_TEMP/smoke")
+          "$exe" collect "$proj" --all -o "$RUNNER_TEMP/smoke-out"
+          find "$RUNNER_TEMP/smoke-out" -type f | tee /dev/stderr | grep -q "(Footage)"
+          COLLECT_FILES_PLUS_AUTOCLOSE_MS=4000 perl -e 'alarm 90; exec @ARGV' "$exe" gui
+
+      - name: Zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $name = "CollectFilesPlus-v${{ steps.ver.outputs.version }}-${{ matrix.name }}"
+          $d = "dist\CollectFilesPlus"
+          Copy-Item packaging\BACA_DULU.txt, LICENSE, NOTICE.md $d
+          New-Item -ItemType Directory "$d\jsx" -Force | Out-Null
+          Copy-Item jsx\CollectFilesPlus.jsx "$d\jsx\"
+          Compress-Archive -Path $d -DestinationPath "dist\$name.zip"
+          Get-Item "dist\$name.zip"
+
+      - name: Zip (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          name="CollectFilesPlus-v${{ steps.ver.outputs.version }}-${{ matrix.name }}"
+          stage="$RUNNER_TEMP/stage/CollectFilesPlus"
+          mkdir -p "$stage/jsx"
+          ditto dist/CollectFilesPlus.app "$stage/CollectFilesPlus.app"
+          cp packaging/BACA_DULU.txt LICENSE NOTICE.md "$stage/"
+          cp jsx/CollectFilesPlus.jsx "$stage/jsx/"
+          ditto -c -k --keepParent "$stage" "dist/$name.zip"
+          ls -la "dist/$name.zip"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: terbitkan release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: out
+          merge-multiple: true
+      - name: Buat / perbarui GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la out
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" out/*.zip --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" out/*.zip \
+              --title "Collect Files Plus $GITHUB_REF_NAME" \
+              --notes-file packaging/RELEASE_NOTES.md
+          fi

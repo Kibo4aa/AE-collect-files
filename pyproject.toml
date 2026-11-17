@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "collect-files-plus"
+dynamic = ["version"]
+description = "Collect Files untuk After Effects tanpa membuka After Effects: footage, font, dan plugin yang benar-benar dipakai project."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE.md"]
+authors = [{ name = "Kibo4aa" }]
+requires-python = ">=3.10"
+dependencies = [
+    "py-aep==0.19.0",
+    "fonttools>=4.38",
+]
+keywords = ["after-effects", "aep", "collect-files", "plugins", "fonts", "amv"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: MacOS X",
+    "Intended Audience :: End Users/Desktop",
+    "Natural Language :: Indonesian",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Video",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+build = ["pyinstaller>=6.10"]
+
+[project.scripts]
+collect-files-plus = "collect_files_plus.cli:main"
+
+[project.gui-scripts]
+collect-files-plus-gui = "collect_files_plus.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/Kibo4aa/AE-collect-files"
+Issues = "https://github.com/Kibo4aa/AE-collect-files/issues"
+Releases = "https://github.com/Kibo4aa/AE-collect-files/releases"
+
+[tool.setuptools.dynamic]
+version = { attr = "collect_files_plus.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+collect_files_plus = ["assets/*.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
