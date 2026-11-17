@@ -26,6 +26,7 @@ from .plugins import (
     norm_key,
     path_size,
     support_items,
+    save_entry_cache,
 )
 from .project import AepProject, EffectGroup, FootageRef, sequence_frames
 
@@ -216,6 +217,42 @@ def copy_file(src: Path, dest_dir: Path, rename_if_different: bool = False) -> P
     return target
 
 
+COPY_WORKERS = 4  # frame image sequence disalin paralel (cepat di SSD & drive jaringan)
+
+
+def copy_many(files: Sequence[Path], dest_dir: Path, on_done: Optional[Callable[[int], None]] = None,
+              cancel: Optional[threading.Event] = None) -> None:
+    """Salin banyak file kecil ke satu folder dengan beberapa thread. on_done(n) dipanggil
+    dari thread pemanggil; boleh melempar Cancelled untuk berhenti."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    if len(files) < 16:
+        for i, f in enumerate(files):
+            if cancel is not None and cancel.is_set():
+                raise Cancelled()
+            copy_file(f, dest_dir)
+            if on_done is not None:
+                on_done(i + 1)
+        return
+    pool = ThreadPoolExecutor(max_workers=COPY_WORKERS)
+    futures = []
+    try:
+        futures = [pool.submit(copy_file, f, dest_dir) for f in files]
+        for n, fut in enumerate(as_completed(futures), start=1):
+            fut.result()
+            if cancel is not None and cancel.is_set():
+                raise Cancelled()
+            if on_done is not None:
+                on_done(n)
+    except BaseException:
+        for fut in futures:
+            fut.cancel()
+        raise
+    finally:
+        pool.shutdown(wait=True)
+
+
 def copy_tree(src: Path, dest_parent: Path) -> Path:
     target = dest_parent / src.name
     shutil.copytree(src, target, symlinks=True, dirs_exist_ok=True)
@@ -340,6 +377,7 @@ def analyze(aep: AepProject, options: Options, env: Optional[Environment] = None
                                     progress=lambda m: _tick(progress, m, cancel))
         found = match_effects(plugins, [e.match_name for e in wanted],
                               progress=lambda m: _tick(progress, m, cancel))
+        save_entry_cache()
         cand_map: Dict[str, PluginCandidate] = {}
         for e in wanted:
             m = found.get(e.match_name)
@@ -470,7 +508,7 @@ def collect(an: Analysis, progress: Optional[ProgressFn] = None,
 
     # 1. reduce project (di memori; file asli tidak berubah)
     if opt.reduce_project and opt.comp_ids is not None and an.roots:
-        _tick(progress, "Reduce Project...", cancel)
+        _tick(progress, _("Reduce Project..."), cancel)
         try:
             res.reduced = aep.reduce(an.roots)
         except Exception as exc:  # noqa: BLE001
@@ -497,18 +535,22 @@ def collect(an: Analysis, progress: Optional[ProgressFn] = None,
             return folder_map[key]
 
         for i, fe in enumerate(an.footage):
-            _tick(progress, "Footage %d/%d: %s" % (i + 1, len(an.footage), fe.src.name), cancel)
+            _tick(progress, _("Footage %d/%d: %s") % (i + 1, len(an.footage), fe.src.name), cancel)
             if not fe.exists:
                 fe.copied = False
                 fe.error = _("file tidak ada")
                 continue
             try:
                 dest = dest_for(fe.src.parent)
-                for j, f in enumerate(fe.files):
-                    if fe.is_sequence and j % 50 == 0:
-                        _tick(progress, "Footage %d/%d: %s (frame %d/%d)" % (
-                            i + 1, len(an.footage), fe.src.name, j + 1, len(fe.files)), cancel)
-                    copy_file(f, dest)
+                if fe.is_sequence:
+                    def frame_done(n: int, _i=i, _fe=fe) -> None:
+                        if n % 50 == 0 or n == len(_fe.files):
+                            _tick(progress, _("Footage %d/%d: %s (frame %d/%d)") % (
+                                _i + 1, len(an.footage), _fe.src.name, n, len(_fe.files)), cancel)
+                    copy_many(fe.files, dest, frame_done, cancel)
+                else:
+                    for f in fe.files:
+                        copy_file(f, dest)
                 for ex in fe.extras:
                     if ex.is_dir():
                         copy_tree(ex, dest)
@@ -530,7 +572,7 @@ def collect(an: Analysis, progress: Optional[ProgressFn] = None,
         for fe in an.fonts:
             if fe.face is None:
                 continue
-            _tick(progress, "Font: " + fe.post_script_name, cancel)
+            _tick(progress, _("Font: %s") % fe.post_script_name, cancel)
             try:
                 copy_file(fe.face.path, dest_root / "(Fonts)", rename_if_different=True)
                 fe.copied = True
@@ -544,7 +586,7 @@ def collect(an: Analysis, progress: Optional[ProgressFn] = None,
         for cd in an.candidates:
             if not cd.selected:
                 continue
-            _tick(progress, "Plugin: " + cd.label, cancel)
+            _tick(progress, _("Plugin: %s") % cd.label, cancel)
             dirs = cd.plugin.parts[:-1]
             cd.dest_rel = "/".join((cd.plugin.root.label,) + tuple(dirs))
             dest = dest_root / "(Plugins)"

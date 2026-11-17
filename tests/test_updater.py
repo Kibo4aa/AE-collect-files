@@ -199,3 +199,56 @@ def test_apply_script_restores_on_failure(tmp_path):
     assert "mengembalikan versi lama" in log, log
     assert (app / "CollectFilesPlus.exe").read_text() == "lama"
     assert (app / "_internal" / "hanya_lama.dll").read_text() == "lama"
+
+
+def test_check_latest_picks_msi_on_windows(monkeypatch):
+    data = release_json(digest="ab" * 32)
+    data["assets"].append({"name": "CollectFilesPlus-v9.9.0-windows-x64.msi", "size": 456,
+                           "browser_download_url": "https://example.invalid/win.msi", "digest": "sha256:" + "cd" * 32})
+    monkeypatch.setattr(updater, "_open", lambda url, timeout: FakeResp(json.dumps(data).encode()))
+    monkeypatch.setattr(updater, "platform_suffix", lambda: "-windows-x64.zip")
+    monkeypatch.setattr(sys, "platform", "win32")
+    info = updater.check_latest()
+    assert info.asset_url == "https://example.invalid/win.zip" and info.sha256 == "ab" * 32
+    assert info.msi_name.endswith(".msi") and info.msi_url == "https://example.invalid/win.msi"
+    assert info.msi_size == 456 and info.msi_sha256 == "cd" * 32
+
+
+def test_update_mode(tmp_path, monkeypatch):
+    info = updater.UpdateInfo("9.9.0", "v9.9.0", "p", asset_url="u.zip", msi_url="u.msi")
+    assert updater.update_mode(info) == "manual"                 # dari source
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(updater, "app_dir", lambda: tmp_path)
+    assert updater.update_mode(info) == "manual"                 # CollectFilesPlus.exe tidak ada
+    (tmp_path / updater.APP_EXE).write_bytes(b"MZ")
+    assert updater.install_type() == "portable" and updater.update_mode(info) == "zip"
+    (tmp_path / updater.MARKER).write_text("msi\n", encoding="utf-8")
+    assert updater.install_type() == "msi" and updater.update_mode(info) == "msi"
+    info.msi_url = ""
+    assert updater.update_mode(info) == "manual"                 # rilis tanpa .msi -> halaman rilis
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert updater.update_mode(info) == "manual"
+
+
+def test_msi_command(tmp_path):
+    msi = tmp_path / "CollectFilesPlus-v9.9.0-windows-x64.msi"
+    args, env = updater.msi_command(msi, tmp_path, "9.9.0", app=tmp_path / "app", pid=4321, restart=False)
+    script = Path(args[args.index("-File") + 1])
+    assert script.is_file() and "msiexec.exe" in script.read_text(encoding="utf-8-sig")
+    assert env["CFP_MSI"] == str(msi) and env["CFP_APP"] == str(tmp_path / "app")
+    assert env["CFP_PID"] == "4321" and env["CFP_VERSION"] == "9.9.0" and env["CFP_NO_RESTART"] == "1"
+    assert updater.RESULT_ENV not in env
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="PowerShell khusus Windows")
+def test_update_scripts_parse_in_powershell(tmp_path):
+    """Kedua skrip pemasang (zip & msi) lolos parser PowerShell 5.1 bawaan Windows."""
+    for name, text in (("zip.ps1", updater.APPLY_PS1), ("msi.ps1", updater.APPLY_MSI_PS1)):
+        path = tmp_path / name
+        path.write_text(text, encoding="utf-8-sig")
+        check = ("$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile('%s', [ref]$null, "
+                 "[ref]$e); if ($e.Count) { $e | ForEach-Object { $_.ToString() }; exit 1 }" % path)
+        out = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", check],
+                             capture_output=True, text=True, timeout=120)
+        assert out.returncode == 0, (name, out.stdout, out.stderr)

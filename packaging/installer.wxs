@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Installer Windows (.msi) untuk Collect Files Plus, dibangun dengan WiX Toolset v5 dari hasil
+  PyInstaller. Perintah lengkapnya ada di .github/workflows/release.yml (langkah "Installer .msi").
+
+  UpgradeCode tidak boleh diganti: dengan kode yang sama, versi baru menggantikan versi lama (MajorUpgrade).
+  Versi aplikasi (Version), ikon (IconFile), lisensi (LicenseRtf), dan folder aplikasi (bindpath "app")
+  diberikan saat build.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Collect Files Plus"
+           Manufacturer="Kibo4aa"
+           Version="$(Version)"
+           UpgradeCode="950F45C2-58DF-4438-A46F-293D4FB77EC5"
+           Language="1033"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AppIcon.ico" SourceFile="$(IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Kibo4aa/AE-collect-files" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Kibo4aa/AE-collect-files/issues" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/Kibo4aa/AE-collect-files/releases" />
+
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtf)" />
+
+    <!-- seluruh isi folder aplikasi (exe, _internal, README, jsx, install-type.txt) -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Collect Files Plus">
+        <Files Include="!(bindpath.app)\**" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="StartMenuShortcut" Name="Collect Files Plus"
+                  Description="Collect footage, fonts and plugins from After Effects projects"
+                  Target="[INSTALLFOLDER]CollectFilesPlus.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon.ico" />
+        <RegistryValue Root="HKCU" Key="Software\Kibo4aa\Collect Files Plus" Name="StartMenuShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut">
+        <Shortcut Id="DesktopShortcut" Name="Collect Files Plus"
+                  Description="Collect footage, fonts and plugins from After Effects projects"
+                  Target="[INSTALLFOLDER]CollectFilesPlus.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon.ico" />
+        <RegistryValue Root="HKCU" Key="Software\Kibo4aa\Collect Files Plus" Name="DesktopShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+  </Package>
+</Wix>

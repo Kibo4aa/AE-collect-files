@@ -47,6 +47,11 @@ EN = {
     "             hasil   : %s": "             output  : %s",
     "             catatan : %s": "             notes   : %s",
     "tidak diketahui": "unknown",
+    "=== PERLU DICEK ===": "=== NEEDS CHECKING ===",
+    "=== SEMUA PROJECT ===": "=== ALL PROJECTS ===",
+    "Semua project berhasil di-collect tanpa catatan.": "Every project was collected without notes.",
+    "comp": "comps",
+    "Render Queue": "Render Queue",
 
     # -------------------------------------------------------------------- cli
     "CATATAN": "NOTES",
@@ -69,7 +74,8 @@ EN = {
     "ikut copy plugin yang hanya ditemukan lewat perkiraan": "also copy plugins that were only found by guessing",
     "Kumpulkan footage, font, dan plugin dari project After Effects tanpa membuka AE.":
         "Collect footage, fonts and plugins from After Effects projects without opening AE.",
-    "bahasa output: id (Indonesia) atau en (English)": "output language: id (Indonesian) or en (English)",
+    "bahasa output: id (Indonesia), en (English), atau ja (Jepang)":
+        "output language: id (Indonesian), en (English) or ja (Japanese)",
     "daftar comp di project": "list the comps in a project",
     "analisa saja, tidak menyalin apa pun": "analyze only, copy nothing",
     "collect ke folder tujuan (bisa banyak project sekaligus)":
@@ -116,13 +122,16 @@ EN = {
     "daftar_efek": "effect_list",
     "Reduce Project gagal: %s": "Reduce Project failed: %s",
     "     Asal: %s": "     Source: %s",
+    "Reduce Project...": "Reduce Project...",
+    "Footage %d/%d: %s": "Footage %d/%d: %s",
+    "Footage %d/%d: %s (frame %d/%d)": "Footage %d/%d: %s (frame %d/%d)",
+    "Font: %s": "Font: %s",
+    "Plugin: %s": "Plugin: %s",
 
     # ------------------------------------------------------------------ fonts
     "Membaca font %d/%d: %s": "Reading font %d/%d: %s",
 
     # -------------------------------------------------------------------- gui
-    'Hapus dari menu klik kanan "Send to"': 'Remove from the right-click "Send to" menu',
-    'Pasang di menu klik kanan "Send to"': 'Add to the right-click "Send to" menu',
     "Pilih file .aep untuk mulai.": "Choose an .aep file to start.",
     "1. Comp & opsi": "1. Comps & options",
     "Keterangan": "Info",
@@ -178,8 +187,6 @@ EN = {
     "akan dicopy": "will be copied",
     "HILANG": "MISSING",
     "Render Queue di project ini kosong.": "The Render Queue in this project is empty.",
-    "Tip: drag file .aep ke jendela ini. Banyak file atau folder sekaligus masuk ke tab Batch.":
-        "Tip: drag .aep files onto this window. Several files or a folder go to the Batch tab.",
     "%d project ditambahkan ke daftar batch (total %d).": "%d project(s) added to the batch list (total %d).",
     "Collect Files Plus sudah dihapus dari menu Send to.": "Collect Files Plus was removed from the Send to menu.",
     "Terpasang.\n\nCara pakai: di Explorer pilih satu atau banyak file .aep (atau folder), klik kanan > Send to > "
@@ -248,6 +255,38 @@ EN = {
         "The .aep file could not be read:\n%s\n\nIf the project was made with a very new version of After Effects, "
         "try the JSX script (jsx folder) from inside After Effects.",
     "Terjadi error:\n%s\n\nDetail ada di tab Log.": "An error occurred:\n%s\n\nDetails are in the Log tab.",
+    "Project (.aep)": "Project (.aep)",
+    "4. Footage": "4. Footage",
+    "Log": "Log",
+    "Collect": "Collect",
+    "Error.": "Error.",
+    'Drag file .aep ke jendela ini, atau klik "Pilih..." di atas untuk membuka project.':
+        'Drag an .aep file onto this window, or click "Browse..." above to open a project.',
+    "Buka project...": "Open project...",
+    "Tambah project ke Batch...": "Add projects to Batch...",
+    "Tambah folder ke Batch...": "Add folder to Batch...",
+    "Buka laporan terakhir": "Open last report",
+    "Keluar": "Exit",
+    "Pengaturan": "Settings",
+    "Tema": "Theme",
+    "Ikuti Windows": "Follow Windows",
+    "Ikuti sistem": "Follow system",
+    "Terang": "Light",
+    "Gelap": "Dark",
+    "Cek update saat aplikasi dibuka": "Check for updates when the app opens",
+    'Menu klik kanan "Send to" di Explorer': 'Right-click "Send to" menu in Explorer',
+    "Bantuan": "Help",
+    "Cara pakai": "How to use",
+    "Cek update...": "Check for updates...",
+    "Halaman GitHub": "GitHub page",
+    "Tentang Collect Files Plus": "About Collect Files Plus",
+    "Belum ada laporan. Jalankan Collect dulu.": "No report yet. Run Collect first.",
+    "Collect Files Plus %s\n\nKumpulkan footage, font, dan plugin yang dipakai project After Effects tanpa membuka "
+    "After Effects.\n\nLisensi MIT\n%s":
+        "Collect Files Plus %s\n\nCollects the footage, fonts and plugins an After Effects project uses, without "
+        "opening After Effects.\n\nMIT License\n%s",
+    "Buka laporan": "Open report",
+    "Hapus dari daftar": "Remove from list",
 
     # ---------------------------------------------------------------- plugins
     "data PiPL": "PiPL data",
@@ -400,6 +439,51 @@ EN = {
     "tidak dicopy karena centangnya dihapus": "not copied because it was unticked",
     "tidak dicopy otomatis karena hanya perkiraan; centang di daftar kalau memang benar":
         "not copied automatically because it is only a guess; tick it in the list if it is right",
+    "RINCIAN": "DETAILS",
+    "=== RINGKASAN ===": "=== SUMMARY ===",
+    "[OK] = beres   [!] = perlu dicek   [i] = info": "[OK] = done   [!] = check this   [i] = information",
+    "=== FOOTAGE ===": "=== FOOTAGE ===",
+    "=== FONT ===": "=== FONTS ===",
+    "Tidak ada yang perlu dicek.": "Nothing needs checking.",
+    "%d error saat collect, lihat [ERROR] di bagian RINCIAN.": "%d error(s) while collecting, see [ERROR] under DETAILS.",
+    "Project: %s (salinan project asli, tidak ada yang perlu diubah).":
+        "Project: %s (a copy of the original project; nothing needed changing).",
+    "Footage: tidak ada file footage.": "Footage: no file footage.",
+    "Footage: %d file/sequence dicopy ke (Footage), total %s.":
+        "Footage: %d files/sequences copied to (Footage), %s in total.",
+    "Footage: %d file/sequence akan dicopy, total %s.": "Footage: %d files/sequences will be copied, %s in total.",
+    "Footage: %d file hilang (tidak ada di komputer ini).": "Footage: %d file(s) missing (not on this computer).",
+    "Cari file aslinya, lalu relink di After Effects. Daftarnya: [HILANG] di bagian FOOTAGE.":
+        "Find the original files, then relink them in After Effects. List: [MISSING] under FOOTAGE.",
+    "Footage: %d file gagal dicopy.": "Footage: %d file(s) could not be copied.",
+    "Lihat [GAGAL] di bagian FOOTAGE.": "See [FAILED] under FOOTAGE.",
+    "Font: tidak ada font yang dipakai.": "Fonts: no fonts are used.",
+    "Font: %d font dicopy ke (Fonts).": "Fonts: %d font(s) copied to (Fonts).",
+    "Font: %d font akan dicopy.": "Fonts: %d font(s) will be copied.",
+    "Font: %d font tidak ketemu di komputer ini.": "Fonts: %d font(s) not found on this computer.",
+    "Install font itu di komputer tujuan. Daftarnya: [TIDAK KETEMU] di bagian FONT.":
+        "Install those fonts on the target computer. List: [NOT FOUND] under FONTS.",
+    "Font: %d Adobe Fonts tidak dicopy.": "Fonts: %d Adobe Fonts not copied.",
+    "Aktifkan lewat aplikasi Creative Cloud di komputer tujuan.":
+        "Activate them in the Creative Cloud app on the target computer.",
+    "Font: %d font gagal dicopy.": "Fonts: %d font(s) could not be copied.",
+    "Plugin: tidak ada efek plugin pihak ketiga yang dipakai.": "Plugins: no third-party plugin effects are used.",
+    "Plugin: %d file plugin dicopy ke (Plugins), untuk %d efek.":
+        "Plugins: %d plugin file(s) copied to (Plugins), for %d effect(s).",
+    "Plugin: %d file plugin akan dicopy, untuk %d efek.": "Plugins: %d plugin file(s) will be copied, for %d effect(s).",
+    "Plugin: %d efek plugin tidak ketemu di komputer ini.": "Plugins: %d plugin effect(s) not found on this computer.",
+    "Install plugin itu di komputer tujuan. Daftarnya: [TIDAK KETEMU] di bagian EFEK & PLUGIN.":
+        "Install those plugins on the target computer. List: [NOT FOUND] under EFFECTS & PLUGINS.",
+    "Plugin: %d file plugin perkiraan tidak dicopy.": "Plugins: %d guessed plugin file(s) not copied.",
+    "Cek [PERKIRAAN, TIDAK DICOPY] di bagian EFEK & PLUGIN; centang di aplikasi kalau memang benar.":
+        "Check [GUESS, NOT COPIED] under EFFECTS & PLUGINS; tick them in the app if they are right.",
+    "Plugin: %d efek perlu dicek manual.": "Plugins: %d effect(s) need a manual check.",
+    "Lihat [OK, CEK MANUAL] di bagian EFEK & PLUGIN.": "See [OK, CHECK MANUALLY] under EFFECTS & PLUGINS.",
+    "Plugin: %d file plugin tidak dicopy karena centangnya dihapus.":
+        "Plugins: %d plugin file(s) not copied because they were unticked.",
+    "Plugin: %d file plugin gagal dicopy.": "Plugins: %d plugin file(s) could not be copied.",
+    "Plugin berbayar tetap butuh installer + lisensi resmi di komputer tujuan.":
+        "Paid plugins still need their official installer + license on the target computer.",
 
     # ----------------------------------------------------------------- sendto
     "Folder SendTo tidak ditemukan (APPDATA kosong).": "SendTo folder not found (APPDATA is empty).",
@@ -422,9 +506,12 @@ EN = {
     "Download": "Download",
     "Download dan pasang versi %s sekarang?\n\nAplikasi akan ditutup lalu dibuka lagi otomatis.":
         "Download and install version %s now?\n\nThe app will close and reopen automatically.",
+    "Download dan pasang versi %s sekarang?\n\nInstaller akan berjalan dan Windows mungkin meminta izin (UAC). "
+    "Aplikasi dibuka lagi setelah selesai.":
+        "Download and install version %s now?\n\nThe installer will run and Windows may ask for permission (UAC). "
+        "The app reopens when it is done.",
     "Update berhasil. Sekarang memakai versi %s.": "Update complete. You are now on version %s.",
     "Update gagal, versi lama tetap dipakai.\nCatatan: %s": "The update failed; the old version is still in use.\nLog: %s",
-    "Cek update": "Check for updates",
     "Lihat perubahan": "What's new",
     "Tutup": "Close",
     "Mengunduh update: %s dari %s": "Downloading update: %s of %s",

@@ -120,7 +120,7 @@ def scope_label(kind: str, names: Sequence[str], n_comps: int) -> str:
         return ""
     if kind == "all":
         return _("semua comp (%d)") % n_comps
-    prefix = {"names": "comp", "rq": "Render Queue", "active": _("comp aktif")}[kind]
+    prefix = {"names": _("comp"), "rq": _("Render Queue"), "active": _("comp aktif")}[kind]
     return prefix + ": " + ", ".join(names)
 
 
@@ -300,6 +300,15 @@ def write_batch_summary(run: BatchRun) -> Path:
         _("Hasil   : %s") % run.headline(),
         "",
     ]
+    attention = [it for it in run.items if it.status != "ok"]
+    lines.append(_("=== PERLU DICEK ==="))
+    if not attention:
+        lines.append(_("Semua project berhasil di-collect tanpa catatan."))
+    for it in attention:
+        reason = it.error.splitlines()[0] if it.error else "; ".join(it.notes)
+        lines.append("%-12s %s%s" % (tag.get(it.status, it.status), it.path.name, (": " + reason) if reason else ""))
+    lines.append("")
+    lines.append(_("=== SEMUA PROJECT ==="))
     for it in run.items:
         lines.append("%-12s %s" % (tag.get(it.status, it.status), it.path.name))
         lines.append(_("             asal    : %s") % it.path)

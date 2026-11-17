@@ -53,14 +53,22 @@ def adobe_fonts_dirs() -> List[Path]:
     return out
 
 
-def default_cache_path() -> Path:
+def cache_dir() -> Path:
+    """Folder cache aplikasi (bisa diganti lewat COLLECT_FILES_PLUS_CACHE_DIR)."""
+    forced = os.environ.get("COLLECT_FILES_PLUS_CACHE_DIR")
+    if forced:
+        return Path(forced)
     if sys.platform == "win32":
         base = Path(os.environ.get("LOCALAPPDATA") or Path.home())
     elif sys.platform == "darwin":
         base = Path.home() / "Library/Caches"
     else:
         base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-    return base / "CollectFilesPlus" / "font-index.json"
+    return base / "CollectFilesPlus"
+
+
+def default_cache_path() -> Path:
+    return cache_dir() / "font-index.json"
 
 
 def _read_faces(path: Path) -> List[List]:

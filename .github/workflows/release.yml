@@ -1,7 +1,8 @@
 name: Build & Release
 
-# Rilis diterbitkan di halaman GitHub (tag mis. v1.0.1, dari branch main) -> build Windows + macOS,
-# uji hasil build, lalu file zip ditempel ke rilis itu (update otomatis di aplikasi mengambil dari sini).
+# Rilis diterbitkan di halaman GitHub (tag mis. v1.1.0, dari branch main) -> build Windows + macOS,
+# uji hasil build, buat installer .msi (Windows, WiX Toolset v5) dan uji pasang/update/uninstall-nya,
+# lalu file zip + msi ditempel ke rilis itu (update otomatis di aplikasi mengambil dari sini).
 # Jalankan manual (workflow_dispatch) -> build + uji saja, hasilnya ada di Artifacts.
 
 on:
@@ -59,6 +60,9 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $d = "dist\CollectFilesPlus"
+          foreach ($f in "_internal\sv_ttk\sv.tcl", "_internal\collect_files_plus\docs\README_ja.txt") {
+            if (-not (Test-Path "$d\$f")) { throw "$f tidak ikut di build" }
+          }
           & "$d\collect-files-plus.exe" --version
           if ($LASTEXITCODE -ne 0) { throw "cli --version gagal" }
           & "$d\collect-files-plus.exe" analyze tests\data\Property-01.aep --all > "$env:RUNNER_TEMP\analyze.txt"
@@ -94,6 +98,8 @@ jobs:
         run: |
           set -e
           exe=dist/CollectFilesPlus.app/Contents/MacOS/CollectFilesPlus
+          find dist/CollectFilesPlus.app -name sv.tcl | grep -q . || { echo "sv_ttk tidak ikut di build"; exit 1; }
+          find dist/CollectFilesPlus.app -name README_ja.txt | grep -q . || { echo "docs tidak ikut di build"; exit 1; }
           "$exe" --version
           "$exe" analyze tests/data/Property-01.aep --all > "$RUNNER_TEMP/analyze.txt"
           head -60 "$RUNNER_TEMP/analyze.txt"
@@ -114,11 +120,103 @@ jobs:
         run: |
           $name = "CollectFilesPlus-v${{ steps.ver.outputs.version }}-${{ matrix.name }}"
           $d = "dist\CollectFilesPlus"
-          Copy-Item packaging\BACA_DULU.txt, packaging\READ_ME_FIRST.txt, LICENSE, NOTICE.md $d
+          foreach ($l in "en", "id", "ja") {
+            Copy-Item "src\collect_files_plus\docs\README_$l.txt" "$d\README_$($l.ToUpper()).txt"
+          }
+          Copy-Item LICENSE, NOTICE.md $d
           New-Item -ItemType Directory "$d\jsx" -Force | Out-Null
           Copy-Item jsx\CollectFilesPlus.jsx "$d\jsx\"
           Compress-Archive -Path $d -DestinationPath "dist\$name.zip"
           Get-Item "dist\$name.zip"
+
+      - name: Installer .msi (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ver = "${{ steps.ver.outputs.version }}"
+          $name = "CollectFilesPlus-v$ver-${{ matrix.name }}"
+          # isi installer = folder zip + penanda "msi" (update di aplikasi lalu memakai installer baru)
+          $stage = Join-Path $env:RUNNER_TEMP "msi\CollectFilesPlus"
+          New-Item -ItemType Directory -Force (Split-Path $stage) | Out-Null
+          Copy-Item -Recurse dist\CollectFilesPlus $stage
+          Set-Content -LiteralPath (Join-Path $stage "install-type.txt") -Value "msi" -Encoding ascii
+          # WiX Toolset v5 (lisensi MS-RL)
+          dotnet tool install --global wix --version 5.0.2
+          if ($LASTEXITCODE -ne 0) { throw "install WiX gagal" }
+          $wix = Join-Path $env:USERPROFILE ".dotnet\tools\wix.exe"
+          & $wix --version
+          & $wix extension add -g WixToolset.UI.wixext/5.0.2
+          if ($LASTEXITCODE -ne 0) { throw "WiX UI extension gagal" }
+          function Build-Msi($version, $out) {
+            & $wix build packaging\installer.wxs -arch x64 -ext WixToolset.UI.wixext `
+              -d "Version=$version" -d "IconFile=packaging\icon.ico" -d "LicenseRtf=packaging\License.rtf" `
+              -bindpath "app=$stage" -o $out
+            if ($LASTEXITCODE -ne 0) { throw "wix build gagal ($version)" }
+          }
+          Build-Msi $ver "dist\$name.msi"
+          # installer versi lebih tinggi, hanya untuk menguji update (tidak ikut dirilis)
+          Build-Msi "99.0.0" (Join-Path $env:RUNNER_TEMP "upgrade-test.msi")
+          Get-Item "dist\$name.msi"
+
+      - name: Uji installer .msi (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:PYTHONUTF8 = "1"
+          $msi = (Get-Item "dist\CollectFilesPlus-v*-windows-x64.msi").FullName
+          function Run-Msi($argv, $what) {
+            $log = Join-Path $env:RUNNER_TEMP "msi-$what.log"
+            $p = Start-Process msiexec.exe -ArgumentList ($argv + @("/qn", "/norestart", "/l*v", "`"$log`"")) -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Get-Content $log -Tail 60; throw "msiexec $what gagal: $($p.ExitCode)" }
+          }
+          function Products { Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\* -ErrorAction SilentlyContinue |
+                              Where-Object { $_.DisplayName -eq "Collect Files Plus" } }
+          $dir = Join-Path $env:ProgramFiles "Collect Files Plus"
+          $startLnk = Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\Collect Files Plus.lnk"
+          $deskLnk = Join-Path $env:PUBLIC "Desktop\Collect Files Plus.lnk"
+
+          # 1. pasang
+          Run-Msi @("/i", "`"$msi`"") "install"
+          Get-ChildItem $dir | Select-Object Name, Length | Format-Table
+          if ((Get-Content (Join-Path $dir "install-type.txt") -Raw).Trim() -ne "msi") { throw "install-type.txt salah" }
+          foreach ($f in "CollectFilesPlus.exe", "collect-files-plus.exe", "README_EN.txt", "README_JA.txt", "jsx\CollectFilesPlus.jsx") {
+            if (-not (Test-Path (Join-Path $dir $f))) { throw "$f tidak terpasang" }
+          }
+          if (-not (Test-Path $startLnk)) { throw "shortcut Start menu tidak ada" }
+          if (-not (Test-Path $deskLnk)) { throw "shortcut desktop tidak ada" }
+          $prod = @(Products)
+          if ($prod.Count -ne 1 -or $prod[0].DisplayVersion -ne "${{ steps.ver.outputs.version }}") { throw "Apps & features salah: $($prod | Out-String)" }
+
+          # 2. aplikasi terpasang jalan (CLI + laporan bahasa Jepang + jendela)
+          & (Join-Path $dir "collect-files-plus.exe") --version
+          if ($LASTEXITCODE -ne 0) { throw "exe terpasang gagal" }
+          $proj = python packaging\smoke_project.py "$env:RUNNER_TEMP\smoke-msi"
+          & (Join-Path $dir "collect-files-plus.exe") --lang ja collect "$proj" --all -o "$env:RUNNER_TEMP\msi-out"
+          if ($LASTEXITCODE -ne 0) { throw "collect dari versi terpasang gagal" }
+          $report = Get-ChildItem -Recurse "$env:RUNNER_TEMP\msi-out" -Filter "*_report.txt" | Select-Object -First 1
+          python -c "import sys; t = open(sys.argv[1], encoding='utf-8').read(); print(t[:900]); assert '\u6982\u8981' in t" $report.FullName
+          if ($LASTEXITCODE -ne 0) { throw "laporan bahasa Jepang tidak ada" }
+          $env:COLLECT_FILES_PLUS_AUTOCLOSE_MS = "4000"
+          $p = Start-Process -FilePath (Join-Path $dir "CollectFilesPlus.exe") -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(90000)) { $p.Kill(); throw "CollectFilesPlus.exe terpasang tidak menutup sendiri" }
+          if ($p.ExitCode -ne 0) { throw "CollectFilesPlus.exe terpasang exit code $($p.ExitCode)" }
+          Remove-Item Env:COLLECT_FILES_PLUS_AUTOCLOSE_MS
+
+          # 3. update ke versi baru lewat skrip pemasang aplikasi (seperti tombol "Update sekarang")
+          python packaging\msi_upgrade_test.py (Join-Path $env:RUNNER_TEMP "upgrade-test.msi") $dir "99.0.0"
+          if ($LASTEXITCODE -ne 0) { throw "update lewat .msi gagal" }
+          $prod = @(Products)
+          if ($prod.Count -ne 1 -or $prod[0].DisplayVersion -ne "99.0.0") { throw "versi lama tidak terganti: $($prod | Out-String)" }
+          if (-not (Test-Path (Join-Path $dir "CollectFilesPlus.exe"))) { throw "exe hilang setelah update" }
+
+          # 4. uninstall: semua bersih
+          Run-Msi @("/x", "`"$(Join-Path $env:RUNNER_TEMP "upgrade-test.msi")`"") "uninstall"
+          if (Test-Path (Join-Path $dir "CollectFilesPlus.exe")) { throw "file aplikasi masih ada setelah uninstall" }
+          if ((Test-Path $startLnk) -or (Test-Path $deskLnk)) { throw "shortcut masih ada setelah uninstall" }
+          if (@(Products).Count -ne 0) { throw "masih terdaftar di Apps & features" }
 
       - name: Zip (macOS)
         if: runner.os == 'macOS'
@@ -127,7 +225,10 @@ jobs:
           stage="$RUNNER_TEMP/stage/CollectFilesPlus"
           mkdir -p "$stage/jsx"
           ditto dist/CollectFilesPlus.app "$stage/CollectFilesPlus.app"
-          cp packaging/BACA_DULU.txt packaging/READ_ME_FIRST.txt LICENSE NOTICE.md "$stage/"
+          for l in en id ja; do
+            cp "src/collect_files_plus/docs/README_$l.txt" "$stage/README_$(echo "$l" | tr a-z A-Z).txt"
+          done
+          cp LICENSE NOTICE.md "$stage/"
           cp jsx/CollectFilesPlus.jsx "$stage/jsx/"
           ditto -c -k --keepParent "$stage" "dist/$name.zip"
           ls -la "dist/$name.zip"
@@ -135,7 +236,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.msi
           if-no-files-found: error
 
   release:
@@ -158,13 +261,13 @@ jobs:
         run: |
           ls -la out
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            # rilis dibuat manual dari halaman GitHub: tempelkan file zip, isi catatan kalau masih kosong
-            gh release upload "$GITHUB_REF_NAME" out/*.zip --clobber
+            # rilis dibuat manual dari halaman GitHub: tempelkan file zip + msi, isi catatan kalau masih kosong
+            gh release upload "$GITHUB_REF_NAME" out/*.zip out/*.msi --clobber
             if [ -z "$(gh release view "$GITHUB_REF_NAME" --json body --jq .body)" ]; then
               gh release edit "$GITHUB_REF_NAME" --notes-file packaging/RELEASE_NOTES.md
             fi
           else
-            gh release create "$GITHUB_REF_NAME" out/*.zip \
+            gh release create "$GITHUB_REF_NAME" out/*.zip out/*.msi \
               --title "Collect Files Plus $GITHUB_REF_NAME" \
               --notes-file packaging/RELEASE_NOTES.md
           fi

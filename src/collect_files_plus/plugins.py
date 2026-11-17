@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -70,6 +71,7 @@ class PluginFile:
 
     def read_entries(self) -> List[PiPLEntry]:
         if self.entries is None:
+            _load_disk_cache()
             key = _entry_key(self)
             cached = _ENTRY_CACHE.get(key) if key is not None else None
             if cached is not None:
@@ -78,12 +80,55 @@ class PluginFile:
                 self.entries = read_plugin_pipl(self.target, self.rsrc)
                 if key is not None:
                     _ENTRY_CACHE[key] = self.entries
+                    _DISK["dirty"] = True
         return self.entries
 
 
 # Isi PiPL per file plugin (path + ukuran + waktu ubah). Analisa berikutnya
-# (batch banyak project, atau analisa ulang di GUI) tidak membaca file yang sama lagi.
+# (batch banyak project, analisa ulang di GUI, atau aplikasi dibuka lagi lewat cache
+# di disk) tidak membaca file yang sama lagi.
 _ENTRY_CACHE: Dict[tuple, List[PiPLEntry]] = {}
+_DISK = {"loaded": False, "dirty": False}
+_DISK_VERSION = 1
+_DISK_MAX = 50000
+
+
+def entry_cache_path() -> Path:
+    from .fonts import cache_dir
+    return cache_dir() / "pipl-cache.json"
+
+
+def _load_disk_cache() -> None:
+    if _DISK["loaded"]:
+        return
+    _DISK["loaded"] = True
+    try:
+        data = json.loads(entry_cache_path().read_text(encoding="utf-8"))
+        if data.get("version") != _DISK_VERSION:
+            return
+        for key, entries in data.get("files", {}).items():
+            k = tuple(tuple(x) for x in json.loads(key))
+            _ENTRY_CACHE.setdefault(k, [PiPLEntry(*e) for e in entries])
+    except (OSError, ValueError, TypeError):
+        pass
+
+
+def save_entry_cache() -> None:
+    """Simpan cache PiPL ke disk kalau ada yang baru (dipanggil setelah analisa)."""
+    if not _DISK["dirty"]:
+        return
+    items = list(_ENTRY_CACHE.items())[-_DISK_MAX:]
+    data = {"version": _DISK_VERSION,
+            "files": {json.dumps(k): [[e.match_name, e.name, e.category] for e in v] for k, v in items}}
+    path = entry_cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        os.replace(tmp, path)
+        _DISK["dirty"] = False
+    except OSError:
+        pass
 
 
 def _entry_key(pf: "PluginFile") -> Optional[tuple]:

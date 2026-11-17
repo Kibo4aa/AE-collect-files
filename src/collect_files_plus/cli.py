@@ -114,7 +114,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     _safe_streams()
     argv, lang = _take_lang(list(sys.argv[1:] if argv is None else argv))
     if lang is not None and lang not in LANGS:
-        print("--lang: id / en", file=sys.stderr)
+        print("--lang: %s" % " / ".join(LANGS), file=sys.stderr)
         return 2
     set_language(lang or system_language())
 
@@ -122,7 +122,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         prog="collect-files-plus",
         description=_("Kumpulkan footage, font, dan plugin dari project After Effects tanpa membuka AE."))
     parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
-    parser.add_argument("--lang", choices=sorted(LANGS), help=_("bahasa output: id (Indonesia) atau en (English)"))
+    parser.add_argument("--lang", choices=sorted(LANGS), help=_("bahasa output: id (Indonesia), en (English), atau ja (Jepang)"))
     sub = parser.add_subparsers(dest="cmd")
 
     p_list = sub.add_parser("list-comps", help=_("daftar comp di project"))
@@ -166,7 +166,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         for c in aep.comps:
             tags = []
             if c.id in rq:
-                tags.append("Render Queue")
+                tags.append(_("Render Queue"))
             if act is not None and c.id == act.id:
                 tags.append(_("aktif"))
             if users.get(c.id):

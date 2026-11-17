@@ -31,6 +31,8 @@ REPO = "Kibo4aa/AE-collect-files"
 API_LATEST = "https://api.github.com/repos/%s/releases/latest" % REPO
 RELEASES_PAGE = "https://github.com/%s/releases/latest" % REPO
 APP_EXE = "CollectFilesPlus.exe"
+MSI_SUFFIX = "-windows-x64.msi"
+MARKER = "install-type.txt"          # berisi "msi" kalau aplikasi dipasang lewat installer .msi
 RESULT_ENV = "COLLECT_FILES_PLUS_UPDATE_RESULT"     # diisi skrip update untuk aplikasi yang dibuka ulang
 NO_CHECK_ENV = "COLLECT_FILES_PLUS_NO_UPDATE_CHECK"
 
@@ -70,6 +72,10 @@ class UpdateInfo:
     asset_url: str = ""
     asset_size: int = 0
     sha256: str = ""
+    msi_name: str = ""
+    msi_url: str = ""
+    msi_size: int = 0
+    msi_sha256: str = ""
 
     @property
     def newer(self) -> bool:
@@ -107,14 +113,14 @@ def check_latest(timeout: float = 10.0) -> Optional[UpdateInfo]:
     suffix = platform_suffix()
     for asset in data.get("assets") or []:
         name = asset.get("name") or ""
-        if suffix and name.endswith(suffix):
-            info.asset_name = name
-            info.asset_url = asset.get("browser_download_url") or ""
-            info.asset_size = int(asset.get("size") or 0)
-            digest = asset.get("digest") or ""
-            if digest.startswith("sha256:"):
-                info.sha256 = digest[7:].lower()
-            break
+        url = asset.get("browser_download_url") or ""
+        size = int(asset.get("size") or 0)
+        digest = asset.get("digest") or ""
+        sha = digest[7:].lower() if digest.startswith("sha256:") else ""
+        if suffix and name.endswith(suffix) and not info.asset_url:
+            info.asset_name, info.asset_url, info.asset_size, info.sha256 = name, url, size, sha
+        elif sys.platform == "win32" and name.endswith(MSI_SUFFIX) and not info.msi_url:
+            info.msi_name, info.msi_url, info.msi_size, info.msi_sha256 = name, url, size, sha
     return info
 
 
@@ -132,22 +138,43 @@ def _writable(folder: Path) -> bool:
         return False
 
 
+def install_type() -> str:
+    """'msi' kalau dipasang lewat installer .msi, selain itu 'portable' (zip)."""
+    try:
+        return "msi" if (app_dir() / MARKER).read_text(encoding="utf-8").strip().lower() == "msi" else "portable"
+    except OSError:
+        return "portable"
+
+
 def can_self_update() -> bool:
-    """Hanya build exe Windows di folder yang bisa ditulisi yang bisa mengganti dirinya sendiri."""
+    """Hanya build exe Windows (zip) di folder yang bisa ditulisi yang bisa mengganti dirinya sendiri."""
     return (sys.platform == "win32" and bool(getattr(sys, "frozen", False))
             and (app_dir() / APP_EXE).is_file() and _writable(app_dir()))
 
 
+def update_mode(info: "UpdateInfo") -> str:
+    """'zip' (ganti file sendiri), 'msi' (jalankan installer baru), atau 'manual' (buka halaman rilis)."""
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return "manual"
+    if install_type() == "msi":
+        return "msi" if info.msi_url else "manual"
+    return "zip" if info.asset_url and can_self_update() else "manual"
+
+
 def download(info: UpdateInfo, dest_dir: Path, progress: Optional[Callable[[int, int], None]] = None,
-             cancel: Optional[threading.Event] = None) -> Path:
-    if not info.asset_url:
+             cancel: Optional[threading.Event] = None, kind: str = "zip") -> Path:
+    if kind == "msi":
+        url, name, size, sha = info.msi_url, info.msi_name or "update.msi", info.msi_size, info.msi_sha256
+    else:
+        url, name, size, sha = info.asset_url, info.asset_name or "update.zip", info.asset_size, info.sha256
+    if not url:
         raise OSError(_("Rilis ini tidak punya file untuk sistem ini."))
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
-    path = dest_dir / (info.asset_name or "update.zip")
+    path = dest_dir / name
     digest = hashlib.sha256()
-    with _open(info.asset_url, 60) as resp, open(path, "wb") as out:
-        total = int(resp.headers.get("Content-Length") or info.asset_size or 0)
+    with _open(url, 60) as resp, open(path, "wb") as out:
+        total = int(resp.headers.get("Content-Length") or size or 0)
         done = 0
         while True:
             if cancel is not None and cancel.is_set():
@@ -160,7 +187,7 @@ def download(info: UpdateInfo, dest_dir: Path, progress: Optional[Callable[[int,
             done += len(chunk)
             if progress is not None:
                 progress(done, total)
-    if info.sha256 and digest.hexdigest() != info.sha256:
+    if sha and digest.hexdigest() != sha:
         path.unlink()
         raise OSError(_("File update rusak (checksum tidak cocok). Coba lagi."))
     return path
@@ -237,6 +264,50 @@ def apply_command(new_dir: Path, tmp_dir: Path, version: str, app: Optional[Path
 def launch_apply(new_dir: Path, tmp_dir: Path, version: str) -> None:
     """Jalankan skrip pemasang di latar belakang; setelah ini aplikasi harus ditutup."""
     args, env = apply_command(new_dir, tmp_dir, version)
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen(args, env=env, creationflags=flags, close_fds=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+# Versi MSI: tunggu aplikasi tertutup, jalankan installer baru (upgrade MSI), lalu buka aplikasi lagi.
+APPLY_MSI_PS1 = r"""
+$ErrorActionPreference = 'Continue'
+$log = $env:CFP_LOG
+function Log($m) { Add-Content -LiteralPath $log -Value ((Get-Date -Format s) + '  ' + $m) }
+Log "menunggu aplikasi ditutup (pid $env:CFP_PID)"
+try { Wait-Process -Id ([int]$env:CFP_PID) -Timeout 120 -ErrorAction SilentlyContinue } catch {}
+Start-Sleep -Milliseconds 500
+$msiArgs = @('/i', ('"' + $env:CFP_MSI + '"'), '/passive', '/norestart', '/l*v',
+             ('"' + (Join-Path $env:CFP_TMP 'msi-log.txt') + '"'))
+$p = Start-Process -FilePath 'msiexec.exe' -ArgumentList $msiArgs -Wait -PassThru
+$code = $p.ExitCode
+Log "msiexec selesai: $code"
+if ($code -eq 0 -or $code -eq 3010) { $env:COLLECT_FILES_PLUS_UPDATE_RESULT = 'ok:' + $env:CFP_VERSION }
+else { $env:COLLECT_FILES_PLUS_UPDATE_RESULT = 'failed:' + $log }
+if (-not $env:CFP_NO_RESTART) {
+    Start-Process -FilePath (Join-Path $env:CFP_APP 'CollectFilesPlus.exe') -WorkingDirectory $env:CFP_APP
+}
+"""
+
+
+def msi_command(msi_path: Path, tmp_dir: Path, version: str, app: Optional[Path] = None,
+                pid: Optional[int] = None, restart: bool = True) -> Tuple[List[str], dict]:
+    tmp_dir = Path(tmp_dir)
+    script = tmp_dir / "pasang-msi.ps1"
+    script.write_text(APPLY_MSI_PS1, encoding="utf-8-sig")
+    env = dict(os.environ, CFP_APP=str(app or app_dir()), CFP_MSI=str(msi_path), CFP_TMP=str(tmp_dir),
+               CFP_LOG=str(tmp_dir / "update-log.txt"), CFP_PID=str(pid if pid is not None else os.getpid()),
+               CFP_VERSION=version)
+    env.pop(RESULT_ENV, None)
+    if not restart:
+        env["CFP_NO_RESTART"] = "1"
+    args = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-WindowStyle", "Hidden", "-File", str(script)]
+    return args, env
+
+
+def launch_msi(msi_path: Path, tmp_dir: Path, version: str) -> None:
+    args, env = msi_command(msi_path, tmp_dir, version)
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     subprocess.Popen(args, env=env, creationflags=flags, close_fds=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

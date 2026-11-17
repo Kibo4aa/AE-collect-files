@@ -61,11 +61,24 @@ def build():
         def rowconfigure(self, *a, **kw):
             pass
 
-        def bind(self, *a, **kw):
+        def bind(self, seq=None, fn=None, add=None):
+            self.bindings = getattr(self, "bindings", {})
+            self.bindings.setdefault(seq, []).append(fn)
+
+        def after(self, ms, fn=None):
+            return "after#%d" % id(fn)
+
+        def after_cancel(self, ident):
             pass
 
-        def configure(self, **kw):
-            self.kw.update(kw)
+        def after_idle(self, fn):
+            return self.after(0, fn)
+
+        def winfo_exists(self):
+            return not getattr(self, "destroyed", False)
+
+        def configure(self, cnf=None, **kw):
+            self.kw.update(cnf or {}, **kw)
 
         config = configure
 
@@ -97,7 +110,9 @@ def build():
         def title(self, t):
             self.kw["title"] = t
 
-        def geometry(self, g):
+        def geometry(self, g=None):
+            if g is None:
+                return self.geom
             self.geom = g
 
         def minsize(self, *a):
@@ -106,8 +121,9 @@ def build():
         def protocol(self, name, fn):
             self.protocols[name] = fn
 
-        def after(self, ms, fn):
+        def after(self, ms, fn=None):
             self.after_calls.append(fn)
+            return "after#%d" % len(self.after_calls)
 
         def mainloop(self):
             pass
@@ -120,7 +136,7 @@ def build():
             super().__init__(master, **kw)
             self.content = ""
 
-        def insert(self, index, text):
+        def insert(self, index, text, *tags):
             self.content += text
 
         def see(self, index):
@@ -150,12 +166,16 @@ def build():
         def yview(self, *a):
             pass
 
-        def insert(self, parent, index, iid=None, text="", values=()):
+        def insert(self, parent, index, iid=None, text="", values=(), tags=()):
             if iid is None:
                 self._n += 1
                 iid = "I%03d" % self._n
-            self.items[iid] = {"text": text, "values": list(values)}
+            self.items[iid] = {"text": text, "values": list(values), "tags": tuple(tags)}
             return iid
+
+        def tag_configure(self, tag, **kw):
+            self.tag_styles = getattr(self, "tag_styles", {})
+            self.tag_styles.setdefault(tag, {}).update(kw)
 
         def delete(self, *iids):
             for i in iids:
@@ -164,9 +184,11 @@ def build():
         def get_children(self, item=""):
             return tuple(self.items.keys())
 
-        def item(self, iid, **kw):
+        def item(self, iid, option=None, **kw):
             if kw:
                 self.items[iid].update(kw)
+            if option is not None:
+                return self.items[iid].get(option)
             return self.items[iid]
 
         def selection(self):
@@ -194,9 +216,10 @@ def build():
             self.tabs.append((child, text))
 
         def select(self, idx=None):
+            """Seperti Tk: yang dikembalikan selalu widget tab (bukan nomor)."""
             if idx is not None:
-                self.selected = idx
-            return self.selected
+                self.selected = self.tabs[idx][0] if isinstance(idx, int) else idx
+            return self.selected if not isinstance(self.selected, int) else self.tabs[self.selected][0]
 
         def index(self, tab):
             if isinstance(tab, int):
@@ -206,11 +229,83 @@ def build():
                     return i
             return 0
 
+        def tab(self, tab, option=None, **kw):
+            i = self.index(tab)
+            if "text" in kw:
+                self.tabs[i] = (self.tabs[i][0], kw["text"])
+            if option == "text":
+                return self.tabs[i][1]
+            return {"text": self.tabs[i][1]}
+
         def tab_texts(self):
             return [t for _c, t in self.tabs]
 
         def extra_texts(self):
             return self.tab_texts()
+
+    class Menu(Widget):
+        """Menu: entri disimpan supaya test bisa mencari dan 'mengklik' item menu."""
+
+        def __init__(self, master=None, **kw):
+            super().__init__(master, **kw)
+            self.entries = []
+
+        def _add(self, kind, **kw):
+            kw["kind"] = kind
+            self.entries.append(kw)
+
+        def add_command(self, **kw):
+            self._add("command", **kw)
+
+        def add_cascade(self, **kw):
+            self._add("cascade", **kw)
+
+        def add_radiobutton(self, **kw):
+            self._add("radiobutton", **kw)
+
+        def add_checkbutton(self, **kw):
+            self._add("checkbutton", **kw)
+
+        def add_separator(self, **kw):
+            self._add("separator", **kw)
+
+        def delete(self, first, last=None):
+            self.entries = []
+
+        def tk_popup(self, x, y, entry=""):
+            self.popped = (x, y)
+
+        def grab_release(self):
+            pass
+
+        def extra_texts(self):
+            return [e["label"] for e in self.entries if isinstance(e.get("label"), str)]
+
+        def labels(self):
+            return [e.get("label") for e in self.entries if e["kind"] != "separator"]
+
+        def entry(self, label):
+            for e in self.entries:
+                if e.get("label") == label:
+                    return e
+            raise KeyError(label)
+
+        def invoke(self, label):
+            """Seperti pengguna memilih item menu ini."""
+            e = self.entry(label)
+            if e["kind"] == "radiobutton":
+                e["variable"].set(e["value"])
+            elif e["kind"] == "checkbutton":
+                e["variable"].set(not e["variable"].get())
+            if e.get("command"):
+                return e["command"]()
+
+    class Toplevel(Widget):
+        def wm_overrideredirect(self, flag=None):
+            pass
+
+        def wm_geometry(self, g=None):
+            self.geom = g
 
     class Progressbar(Widget):
         def start(self, *a):
@@ -270,6 +365,8 @@ def build():
     tk.Tk = Tk
     tk.PhotoImage = PhotoImage
     tk.Text = Text
+    tk.Menu = Menu
+    tk.Toplevel = Toplevel
     tk.StringVar = Var
     tk.BooleanVar = Var
     tk.END = "end"

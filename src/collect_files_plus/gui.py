@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -16,10 +17,11 @@ from typing import Dict, List, Optional
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import __version__, dnd, sendto, updater
+from . import __version__, dnd, sendto, theme, updater
 from .i18n import LANGS, _, get_language, set_language, system_language
 
 APP_TITLE = "Collect Files Plus"
+GITHUB_URL = "https://github.com/Kibo4aa/AE-collect-files"
 CHECK_ON = "☑ "
 CHECK_OFF = "☐ "
 
@@ -81,6 +83,87 @@ def open_folder(path: Path) -> None:
         pass
 
 
+def reveal(path: Path) -> None:
+    """Tampilkan file di Explorer/Finder (file-nya terpilih)."""
+    path = Path(path)
+    try:
+        if sys.platform == "win32" and path.exists():
+            subprocess.Popen(["explorer", "/select,", str(path)])
+        elif sys.platform == "darwin" and path.exists():
+            subprocess.Popen(["open", "-R", str(path)])
+        else:
+            open_folder(path if path.is_dir() else path.parent)
+    except OSError:
+        pass
+
+
+def docs_dir() -> Path:
+    return Path(__file__).resolve().parent / "docs"
+
+
+class TreeTip:
+    """Tooltip berisi teks lengkap sel tabel (untuk path panjang yang terpotong)."""
+
+    def __init__(self, tree, min_len: int = 28):
+        self.tree = tree
+        self.min_len = min_len
+        self.win = None
+        self.cell = None
+        self.job = None
+        tree.bind("<Motion>", self._motion, add="+")
+        tree.bind("<Leave>", lambda _e: self._hide(), add="+")
+
+    def text_at(self, row: str, col: str) -> str:
+        if not row:
+            return ""
+        if col == "#0":
+            return str(self.tree.item(row, "text")).replace(CHECK_ON, "").replace(CHECK_OFF, "").strip()
+        try:
+            values = self.tree.item(row, "values")
+            return str(values[int(col[1:]) - 1])
+        except (ValueError, IndexError, TypeError):
+            return ""
+
+    def _motion(self, e) -> None:
+        cell = (self.tree.identify_row(e.y), self.tree.identify_column(e.x))
+        if cell == self.cell:
+            return
+        self._hide()
+        self.cell = cell
+        self.job = self.tree.after(600, lambda: self._show(e.x_root, e.y_root))
+
+    def _show(self, x: int, y: int) -> None:
+        self.job = None
+        try:
+            if not self.tree.winfo_exists():
+                return
+            text = self.text_at(*self.cell) if self.cell else ""
+            if len(text) < self.min_len:
+                return
+            self.win = tk.Toplevel(self.tree)
+            self.win.wm_overrideredirect(True)
+            self.win.wm_geometry("+%d+%d" % (x + 14, y + 18))
+            ttk.Label(self.win, text=text, padding=(8, 4), relief="solid", borderwidth=1,
+                      wraplength=900).pack()
+        except Exception:  # noqa: BLE001 - tabel sudah dibangun ulang (ganti bahasa)
+            self.win = None
+
+    def _hide(self) -> None:
+        if self.job is not None:
+            try:
+                self.tree.after_cancel(self.job)
+            except Exception:  # noqa: BLE001
+                pass
+            self.job = None
+        if self.win is not None:
+            try:
+                self.win.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+            self.win = None
+        self.cell = None
+
+
 class CheckTree(ttk.Frame):
     """Treeview dengan kotak centang di kolom pertama."""
 
@@ -88,10 +171,10 @@ class CheckTree(ttk.Frame):
         super().__init__(master)
         self.tree = ttk.Treeview(self, columns=[c for c in columns[1:]], height=height, selectmode="extended")
         self.tree.heading("#0", text=columns[0], anchor="w")
-        self.tree.column("#0", width=widths[0], anchor="w")
+        self.tree.column("#0", width=widths[0], anchor="w", stretch=True)
         for i, c in enumerate(columns[1:], start=1):
             self.tree.heading(c, text=c, anchor="w")
-            self.tree.column(c, width=widths[i], anchor="w")
+            self.tree.column(c, width=widths[i], anchor="w", stretch=i == len(columns) - 1)
         ys = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=ys.set)
         self.tree.grid(row=0, column=0, sticky="nsew")
@@ -104,6 +187,7 @@ class CheckTree(ttk.Frame):
         self.on_change = None
         self.tree.bind("<Button-1>", self._click, add="+")
         self.tree.bind("<space>", self._space, add="+")
+        self.tip = TreeTip(self.tree)
 
     def clear(self) -> None:
         self.tree.delete(*self.tree.get_children())
@@ -111,11 +195,11 @@ class CheckTree(ttk.Frame):
         self.labels.clear()
         self.checkable.clear()
 
-    def add(self, iid: str, label: str, values=(), checked=False, checkable=True) -> None:
+    def add(self, iid: str, label: str, values=(), checked=False, checkable=True, tags=()) -> None:
         self.labels[iid] = label
         self.checked[iid] = bool(checked)
         self.checkable[iid] = checkable
-        self.tree.insert("", "end", iid=iid, text=self._text(iid), values=list(values))
+        self.tree.insert("", "end", iid=iid, text=self._text(iid), values=list(values), tags=tuple(tags))
 
     def _text(self, iid: str) -> str:
         if not self.checkable.get(iid, True):
@@ -165,28 +249,35 @@ class InfoTree(ttk.Frame):
     def __init__(self, master, columns, widths, height=12):
         super().__init__(master)
         self.tree = ttk.Treeview(self, columns=columns, show="headings", height=height)
-        for c, w in zip(columns, widths):
+        for i, (c, w) in enumerate(zip(columns, widths)):
             self.tree.heading(c, text=c, anchor="w")
-            self.tree.column(c, width=w, anchor="w")
+            self.tree.column(c, width=w, anchor="w", stretch=i == len(columns) - 1)
         ys = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=ys.set)
         self.tree.grid(row=0, column=0, sticky="nsew")
         ys.grid(row=0, column=1, sticky="ns")
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
+        self.tip = TreeTip(self.tree)
 
     def clear(self) -> None:
         self.tree.delete(*self.tree.get_children())
 
-    def add(self, values, iid: Optional[str] = None) -> None:
+    def add(self, values, iid: Optional[str] = None, tags=()) -> str:
         if iid is None:
-            self.tree.insert("", "end", values=list(values))
-        else:
-            self.tree.insert("", "end", iid=iid, values=list(values))
+            return self.tree.insert("", "end", values=list(values), tags=tuple(tags))
+        return self.tree.insert("", "end", iid=iid, values=list(values), tags=tuple(tags))
 
-    def set_row(self, iid: str, values) -> None:
+    def set_row(self, iid: str, values, tags=None) -> None:
         if iid in self.tree.get_children():
-            self.tree.item(iid, values=list(values))
+            if tags is None:
+                self.tree.item(iid, values=list(values))
+            else:
+                self.tree.item(iid, values=list(values), tags=tuple(tags))
+
+
+BATCH_TAG = {"ok": "ok", "catatan": "warn", "gagal": "error", "jalan": "run", "dibatalkan": "muted",
+             "menunggu": "muted"}
 
 
 class App:
@@ -196,6 +287,10 @@ class App:
         # pemakai lama (settings sudah ada) tetap bahasa Indonesia; pemakai baru ikut bahasa sistem
         set_language(self.settings.get("lang") or ("id" if self.settings else system_language()))
         self.aep = None
+        self.aep_stale = False            # project di memori sudah diubah collect: baca ulang sebelum dipakai
+        self.rq_ids: set = set()
+        self.active_id: Optional[int] = None
+        self.comp_rows: list = []         # (id, nama, dipakai sebagai precomp di n comp, dicentang awal)
         self.analysis = None
         self.analysis_key = None
         self.result = None
@@ -204,24 +299,28 @@ class App:
         self.cancel = threading.Event()
         self.batch_paths: List[Path] = []
         self.batch_run = None
+        self.batch_total = 0
         self.last_folder: Optional[Path] = None
+        self.last_report: Optional[Path] = None
         self.update_info = None
         self.update_dismissed = False
+        self.row_paths: Dict[str, Dict[str, Path]] = {}
 
         self.scale = ui_scale(root)
         root.title("%s %s" % (APP_TITLE, __version__))
-        root.geometry("%dx%d" % (self.px(1080), self.px(720)))
-        root.minsize(self.px(900), self.px(600))
-        try:  # baris tabel ikut membesar di layar high-DPI (Tk tidak melakukannya sendiri)
-            ttk.Style(root).configure("Treeview", rowheight=self.px(20) + 2)
-        except Exception:  # noqa: BLE001
-            pass
+        root.geometry("%dx%d" % self._saved_size())     # ukuran terakhir (posisi diatur Windows)
+        root.minsize(self.px(920), self.px(600))
+        if self.settings.get("maximized"):
+            try:
+                root.state("zoomed")
+            except Exception:  # noqa: BLE001 - tidak semua sistem punya "zoomed"
+                pass
         set_icon(root)
 
-        self.var_aep = tk.StringVar(value=initial or "")
-        self.var_dest = tk.StringVar(value=self.settings.get("dest", ""))
-        self.var_status = tk.StringVar(value=_("Pilih file .aep untuk mulai."))
         s = self.settings
+        self.var_aep = tk.StringVar(value=initial or "")
+        self.var_dest = tk.StringVar(value=s.get("dest", ""))
+        self.var_status = tk.StringVar(value=_("Pilih file .aep untuk mulai."))
         self.opt_footage = tk.BooleanVar(value=s.get("footage", True))
         self.opt_reduce = tk.BooleanVar(value=s.get("reduce", False))
         self.opt_fonts = tk.BooleanVar(value=s.get("fonts", True))
@@ -230,12 +329,20 @@ class App:
         self.opt_support = tk.BooleanVar(value=s.get("support_files", False))
         self.opt_presets = tk.BooleanVar(value=s.get("presets", False))
         self.var_batch_scope = tk.StringVar(value=s.get("batch_scope", "auto"))
+        self.var_lang = tk.StringVar(value=get_language())
+        self.var_theme = tk.StringVar(value=s.get("theme", "system"))
+        self.var_auto_update = tk.BooleanVar(value=s.get("check_updates", True))
+        self.var_sendto = tk.BooleanVar(value=sendto.available() and sendto.installed())
 
+        self.theme_name = ""
+        self.ctx_menu = None
+        self._apply_theme()
         self._build()
+        self._bind_keys()
+        root.after_idle(self._sync_titlebar)       # setelah jendela tampil (title bar gelap/terang)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.after(100, self._poll)
         self.dnd_ok = self._setup_dnd()
-        self._show_hint()
         if initial:
             root.after(200, self.load_project)
         if batch:
@@ -243,62 +350,130 @@ class App:
         result = updater.take_update_result()          # baru saja di-update oleh skrip pemasang?
         if result is not None:
             root.after(300, lambda: self._show_update_result(*result))
-        if (self.settings.get("check_updates", True) and not os.environ.get(updater.NO_CHECK_ENV)
+        if (self.var_auto_update.get() and not os.environ.get(updater.NO_CHECK_ENV)
                 and not os.environ.get("COLLECT_FILES_PLUS_AUTOCLOSE_MS")):
             root.after(1500, self.check_updates)
 
-    # ------------------------------------------------------------ UI
+    # ------------------------------------------------------------ tampilan
 
     def px(self, n: float) -> int:
         return int(round(n * self.scale))
 
+    def _saved_size(self):
+        """Ukuran jendela terakhir, tidak lebih besar dari layar dan tidak lebih kecil dari batas minimum."""
+        m = re.match(r"^(\d{3,5})x(\d{3,5})", str(self.settings.get("geometry") or ""))
+        w, h = (int(m.group(1)), int(m.group(2))) if m else (self.px(1100), self.px(740))
+        try:
+            w = min(w, int(self.root.winfo_screenwidth()))
+            h = min(h, int(self.root.winfo_screenheight()) - self.px(40))
+        except Exception:  # noqa: BLE001
+            pass
+        return max(w, self.px(920)), max(h, self.px(600))
+
     def _w(self, *widths: int) -> List[int]:
         return [self.px(w) for w in widths]
 
+    def _apply_theme(self) -> None:
+        """Tema + font sesuai bahasa + ukuran baris tabel. Dipanggil saat mulai, ganti tema, ganti bahasa."""
+        self.theme_name = theme.apply(self.root, self.var_theme.get(), self.scale)
+        theme.apply_fonts(self.root, get_language())
+        style = ttk.Style(self.root)
+        try:  # baris tabel ikut membesar di layar high-DPI dan untuk huruf Jepang
+            style.configure("Treeview", rowheight=self._row_height())
+        except Exception:  # noqa: BLE001
+            pass
+        self.accent = "TButton"
+        if self.theme_name:
+            try:
+                style.layout("Accent.TButton")
+                self.accent = "Accent.TButton"
+                style.configure("TButton", padding=(self.px(10), self.px(3)))
+                style.configure("Accent.TButton", padding=(self.px(14), self.px(3)))
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _row_height(self) -> int:
+        try:
+            from tkinter import font as tkfont
+            name = "SunValleyBodyFont" if self.theme_name else "TkDefaultFont"
+            return max(self.px(24), int(tkfont.nametofont(name, root=self.root).metrics("linespace")) + self.px(8))
+        except Exception:  # noqa: BLE001 - tanpa Tk asli
+            return self.px(22) + 4
+
+    def _sync_titlebar(self) -> None:
+        theme.titlebar(self.root, self.theme_name == "dark")
+
+    def _recolor(self) -> None:
+        """Warna status di tabel + kotak Log sesuai tema."""
+        colors = theme.STATUS_COLORS["dark" if self.theme_name == "dark" else "light"]
+        for tree in self._trees():
+            for tag, color in colors.items():
+                try:
+                    tree.tag_configure(tag, foreground=color)
+                except Exception:  # noqa: BLE001
+                    pass
+        bg, fg = theme.TEXT_COLORS["dark" if self.theme_name == "dark" else "light"]
+        try:
+            self.log.configure(background=bg, foreground=fg, insertbackground=fg, relief="flat",
+                               borderwidth=0, highlightthickness=0)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _trees(self):
+        return [t.tree for t in (self.comp_tree, self.plugin_tree, self.font_tree, self.foot_tree,
+                                 self.fx_tree, self.batch_tree)]
+
     def _build(self) -> None:
+        self._build_menu()
         pad = {"padx": 6, "pady": 4}
-        top = ttk.Frame(self.root)
-        top.pack(fill="x", padx=8, pady=(8, 2))
+
+        # bar pemberitahuan update (ditampilkan kalau ada versi baru)
+        self.update_bar = ttk.Frame(self.root, padding=(8, 6))
+        self.update_label = ttk.Label(self.update_bar, text="")
+        self.update_label.pack(side="left", padx=(4, 12))
+        self.btn_update = ttk.Button(self.update_bar, text=_("Update sekarang"), command=self.start_update,
+                                     style=self.accent)
+        self.btn_update.pack(side="left", padx=2)
+        ttk.Button(self.update_bar, text=_("Lihat perubahan"), command=self.open_release_page).pack(side="left", padx=2)
+        ttk.Button(self.update_bar, text=_("Tutup"), command=self.hide_update_bar).pack(side="left", padx=2)
+
+        top = ttk.Frame(self.root, padding=(8, 8, 8, 2))
+        top.pack(fill="x")
         self._top = top
-        ttk.Label(top, text="Project (.aep)").grid(row=0, column=0, sticky="w", **pad)
+        ttk.Label(top, text=_("Project (.aep)")).grid(row=0, column=0, sticky="w", **pad)
         ttk.Entry(top, textvariable=self.var_aep).grid(row=0, column=1, sticky="ew", **pad)
-        ttk.Button(top, text=_("Pilih..."), command=self.choose_aep).grid(row=0, column=2, **pad)
-        langf = ttk.Frame(top)
-        langf.grid(row=0, column=3, sticky="e", padx=(12, 4))
-        ttk.Label(langf, text="Bahasa / Language").pack(side="left", padx=(0, 4))
-        self.lang_box = ttk.Combobox(langf, values=list(LANGS.values()), state="readonly", width=17)
-        self.lang_box.set(LANGS[get_language()])
-        self.lang_box.bind("<<ComboboxSelected>>", self._on_lang_selected)
-        self.lang_box.pack(side="left")
-        ttk.Button(langf, text=_("Cek update"), command=lambda: self.check_updates(manual=True)).pack(
-            side="left", padx=(8, 0))
+        ttk.Button(top, text=_("Pilih..."), command=self.choose_aep).grid(row=0, column=2, sticky="ew", **pad)
         ttk.Label(top, text=_("Folder tujuan")).grid(row=1, column=0, sticky="w", **pad)
         ttk.Entry(top, textvariable=self.var_dest).grid(row=1, column=1, sticky="ew", **pad)
-        ttk.Button(top, text=_("Pilih..."), command=self.choose_dest).grid(row=1, column=2, **pad)
-        self.hint = ttk.Label(top, text="")
-        self.hint.grid(row=2, column=1, sticky="w", padx=6)
+        ttk.Button(top, text=_("Pilih..."), command=self.choose_dest).grid(row=1, column=2, sticky="ew", **pad)
         top.columnconfigure(1, weight=1)
 
         self.nb = ttk.Notebook(self.root)
         self.nb.pack(fill="both", expand=True, padx=8, pady=4)
+        self.tab_names: List[str] = []
+
+        def add_tab(frame, name: str) -> None:
+            self.nb.add(frame, text=name)
+            self.tab_names.append(name)
 
         # Tab 1: comp + opsi
-        tab1 = ttk.Frame(self.nb)
-        self.nb.add(tab1, text=_("1. Comp & opsi"))
+        tab1 = ttk.Frame(self.nb, padding=6)
+        add_tab(tab1, _("1. Comp & opsi"))
         left = ttk.Frame(tab1)
-        left.pack(side="left", fill="both", expand=True, padx=(6, 3), pady=6)
-        ttk.Label(left, text=_("Centang comp utama yang dipakai. Precomp di dalamnya ikut dibaca otomatis.")).pack(anchor="w")
-        self.comp_tree = CheckTree(left, ["Comp", _("Keterangan")], self._w(360, 300), height=14)
+        left.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        self.comp_hint = ttk.Label(left, text="", wraplength=self.px(620), justify="left")
+        self.comp_hint.pack(anchor="w", pady=(0, 4))
+        self.comp_tree = CheckTree(left, [_("Comp"), _("Keterangan")], self._w(380, 300), height=14)
         self.comp_tree.pack(fill="both", expand=True, pady=4)
         row = ttk.Frame(left)
         row.pack(fill="x")
-        ttk.Button(row, text="Render Queue", command=lambda: self.select_comps("rq")).pack(side="left", padx=2)
-        ttk.Button(row, text=_("Comp aktif"), command=lambda: self.select_comps("active")).pack(side="left", padx=2)
-        ttk.Button(row, text=_("Semua"), command=lambda: self.comp_tree.set_all(True)).pack(side="left", padx=2)
-        ttk.Button(row, text=_("Kosongkan"), command=lambda: self.comp_tree.set_all(False)).pack(side="left", padx=2)
+        ttk.Button(row, text=_("Render Queue"), command=lambda: self.select_comps("rq")).pack(side="left", padx=(0, 4))
+        ttk.Button(row, text=_("Comp aktif"), command=lambda: self.select_comps("active")).pack(side="left", padx=4)
+        ttk.Button(row, text=_("Semua"), command=lambda: self.comp_tree.set_all(True)).pack(side="left", padx=4)
+        ttk.Button(row, text=_("Kosongkan"), command=lambda: self.comp_tree.set_all(False)).pack(side="left", padx=4)
 
-        right = ttk.LabelFrame(tab1, text=_("Yang dikumpulkan"))
-        right.pack(side="left", fill="y", padx=(3, 6), pady=6)
+        right = ttk.LabelFrame(tab1, text=_("Yang dikumpulkan"), padding=(10, 6))
+        right.pack(side="left", fill="y")
         opts = [
             (self.opt_footage, _("Footage (copy + relink ke folder (Footage))")),
             (self.opt_reduce, _("Buang comp & footage yang tidak dipakai\n(Reduce Project)")),
@@ -309,102 +484,175 @@ class App:
             (self.opt_presets, _("Ikut animation preset (.ffx) yang\nnamanya sama dengan efek yang di-rename")),
         ]
         for var, text in opts:
-            ttk.Checkbutton(right, text=text, variable=var).pack(anchor="w", padx=8, pady=3)
+            ttk.Checkbutton(right, text=text, variable=var).pack(anchor="w", pady=4)
 
         # Tab 2: plugin
-        tab2 = ttk.Frame(self.nb)
-        self.nb.add(tab2, text=_("2. Plugin"))
+        tab2 = ttk.Frame(self.nb, padding=6)
+        add_tab(tab2, _("2. Plugin"))
         ttk.Label(tab2, text=_("File plugin yang akan dicopy. Klik kotak centang untuk memilih. "
-                               "\"(perkiraan)\" = tidak dicentang otomatis.")).pack(anchor="w", padx=6, pady=(6, 0))
+                               "\"(perkiraan)\" = tidak dicentang otomatis."),
+                  wraplength=self.px(980), justify="left").pack(anchor="w")
         self.plugin_tree = CheckTree(tab2, [_("File plugin"), _("Efek yang dipakai"), _("Ukuran"), _("Cara ketemu")],
-                                     self._w(360, 330, 80, 220), height=14)
-        self.plugin_tree.pack(fill="both", expand=True, padx=6, pady=4)
+                                     self._w(380, 340, 80, 220), height=14)
+        self.plugin_tree.pack(fill="both", expand=True, pady=4)
         self.plugin_tree.on_change = self._update_plugin_total
         row2 = ttk.Frame(tab2)
-        row2.pack(fill="x", padx=6, pady=(0, 6))
-        ttk.Button(row2, text=_("Centang semua"), command=lambda: self.plugin_tree.set_all(True)).pack(side="left", padx=2)
-        ttk.Button(row2, text=_("Hapus semua centang"), command=lambda: self.plugin_tree.set_all(False)).pack(side="left", padx=2)
+        row2.pack(fill="x")
+        ttk.Button(row2, text=_("Centang semua"), command=lambda: self.plugin_tree.set_all(True)).pack(side="left", padx=(0, 4))
+        ttk.Button(row2, text=_("Hapus semua centang"), command=lambda: self.plugin_tree.set_all(False)).pack(side="left", padx=4)
         self.plugin_total = ttk.Label(row2, text="")
         self.plugin_total.pack(side="left", padx=12)
 
         # Tab 3-5: font, footage, efek
-        tab3 = ttk.Frame(self.nb)
-        self.nb.add(tab3, text=_("3. Font"))
-        self.font_tree = InfoTree(tab3, [_("Font (PostScript)"), _("File"), _("Status")], self._w(260, 520, 200))
-        self.font_tree.pack(fill="both", expand=True, padx=6, pady=6)
+        tab3 = ttk.Frame(self.nb, padding=6)
+        add_tab(tab3, _("3. Font"))
+        self.font_tree = InfoTree(tab3, [_("Font (PostScript)"), _("File"), _("Status")], self._w(260, 520, 220))
+        self.font_tree.pack(fill="both", expand=True)
 
-        tab4 = ttk.Frame(self.nb)
-        self.nb.add(tab4, text="4. Footage")
-        self.foot_tree = InfoTree(tab4, [_("Item"), _("File"), _("Ukuran"), _("Status")], self._w(260, 520, 80, 140))
-        self.foot_tree.pack(fill="both", expand=True, padx=6, pady=6)
+        tab4 = ttk.Frame(self.nb, padding=6)
+        add_tab(tab4, _("4. Footage"))
+        self.foot_tree = InfoTree(tab4, [_("Item"), _("File"), _("Ukuran"), _("Status")], self._w(260, 520, 90, 170))
+        self.foot_tree.pack(fill="both", expand=True)
 
-        tab5 = ttk.Frame(self.nb)
-        self.nb.add(tab5, text=_("5. Semua efek"))
+        tab5 = ttk.Frame(self.nb, padding=6)
+        add_tab(tab5, _("5. Semua efek"))
         self.fx_tree = InfoTree(tab5, [_("Efek"), _("Nama di layer"), _("Match name"), _("Jenis"), _("Dipakai"), _("Status")],
-                                self._w(200, 200, 200, 150, 70, 180))
-        self.fx_tree.pack(fill="both", expand=True, padx=6, pady=6)
+                                self._w(200, 200, 200, 150, 70, 200))
+        self.fx_tree.pack(fill="both", expand=True)
 
         # Tab batch: banyak project sekaligus
-        tabb = ttk.Frame(self.nb)
-        self.nb.add(tabb, text=_("Batch (banyak project)"))
+        tabb = ttk.Frame(self.nb, padding=6)
+        add_tab(tabb, _("Batch (banyak project)"))
         self.batch_tab = tabb
         ttk.Label(tabb, text=_("Collect banyak project sekaligus. Semua hasil masuk ke \"Folder tujuan\" di atas, "
                                "tiap project ke folder <nama>_Collected sendiri.\nOpsi yang dicentang di tab "
                                "\"1. Comp & opsi\" dipakai untuk semua project. File .aep atau folder juga bisa "
-                               "di-drag ke jendela ini."), justify="left").pack(anchor="w", padx=6, pady=(6, 0))
+                               "di-drag ke jendela ini."),
+                  justify="left", wraplength=self.px(980)).pack(anchor="w")
         self.batch_tree = InfoTree(tabb, [_("Project"), _("Lokasi"), _("Comp"), _("Status"), _("Hasil")],
-                                   self._w(200, 300, 200, 300, 200))
-        self.batch_tree.pack(fill="both", expand=True, padx=6, pady=4)
+                                   self._w(220, 300, 170, 300, 220))
+        self.batch_tree.pack(fill="both", expand=True, pady=4)
         rb = ttk.Frame(tabb)
-        rb.pack(fill="x", padx=6)
-        ttk.Button(rb, text=_("Tambah file .aep..."), command=self.batch_add_files).pack(side="left", padx=2)
-        ttk.Button(rb, text=_("Tambah folder..."), command=self.batch_add_folder).pack(side="left", padx=2)
-        ttk.Button(rb, text=_("Hapus yang dipilih"), command=self.batch_remove_selected).pack(side="left", padx=2)
-        ttk.Button(rb, text=_("Kosongkan"), command=self.batch_clear).pack(side="left", padx=2)
+        rb.pack(fill="x")
+        ttk.Button(rb, text=_("Tambah file .aep..."), command=self.batch_add_files).pack(side="left", padx=(0, 4))
+        ttk.Button(rb, text=_("Tambah folder..."), command=self.batch_add_folder).pack(side="left", padx=4)
+        ttk.Button(rb, text=_("Hapus yang dipilih"), command=self.batch_remove_selected).pack(side="left", padx=4)
+        ttk.Button(rb, text=_("Kosongkan"), command=self.batch_clear).pack(side="left", padx=4)
         self.batch_count = ttk.Label(rb, text="")
         self.batch_count.pack(side="left", padx=12)
         rs = ttk.Frame(tabb)
-        rs.pack(fill="x", padx=6, pady=(6, 0))
-        ttk.Label(rs, text=_("Comp yang dibaca:")).pack(side="left", padx=2)
+        rs.pack(fill="x", pady=(8, 0))
+        ttk.Label(rs, text=_("Comp yang dibaca:")).pack(side="left", padx=(0, 4))
         ttk.Radiobutton(rs, text=_("Otomatis (Render Queue, kalau kosong comp aktif, kalau tidak ada semua comp)"),
                         value="auto", variable=self.var_batch_scope).pack(side="left", padx=4)
         ttk.Radiobutton(rs, text=_("Semua comp"), value="all", variable=self.var_batch_scope).pack(side="left", padx=4)
         rc = ttk.Frame(tabb)
-        rc.pack(fill="x", padx=6, pady=6)
-        self.btn_batch = ttk.Button(rc, text=_("Collect semua project"), command=self.start_batch)
-        self.btn_batch.pack(side="left", padx=2)
-        self.btn_sendto = None
-        if sendto.available():
-            self.btn_sendto = ttk.Button(rc, text=self._sendto_label(), command=self.toggle_sendto)
-            self.btn_sendto.pack(side="right", padx=2)
+        rc.pack(fill="x", pady=(8, 0))
+        self.btn_batch = ttk.Button(rc, text=_("Collect semua project"), command=self.start_batch, style=self.accent)
+        self.btn_batch.pack(side="left")
 
-        tab6 = ttk.Frame(self.nb)
-        self.nb.add(tab6, text="Log")
-        self.log = tk.Text(tab6, height=10, wrap="word")
-        self.log.pack(fill="both", expand=True, padx=6, pady=6)
+        tab6 = ttk.Frame(self.nb, padding=6)
+        add_tab(tab6, _("Log"))
+        self.log = tk.Text(tab6, height=10, wrap="word", padx=8, pady=6, state="disabled")
+        self.log.pack(fill="both", expand=True)
 
-        bottom = ttk.Frame(self.root)
-        bottom.pack(fill="x", padx=8, pady=(2, 8))
+        bottom = ttk.Frame(self.root, padding=(8, 4, 8, 8))
+        bottom.pack(fill="x")
         self.btn_analyze = ttk.Button(bottom, text=_("Analisa"), command=self.start_analyze)
-        self.btn_analyze.pack(side="left", padx=2)
-        self.btn_collect = ttk.Button(bottom, text="Collect", command=self.start_collect)
-        self.btn_collect.pack(side="left", padx=2)
+        self.btn_analyze.pack(side="left", padx=(0, 4))
+        self.btn_collect = ttk.Button(bottom, text=_("Collect"), command=self.start_collect, style=self.accent)
+        self.btn_collect.pack(side="left", padx=4)
         self.btn_cancel = ttk.Button(bottom, text=_("Batal"), command=self.cancel.set, state="disabled")
-        self.btn_cancel.pack(side="left", padx=2)
-        self.btn_open = ttk.Button(bottom, text=_("Buka folder hasil"), command=self.open_result, state="disabled")
-        self.btn_open.pack(side="right", padx=2)
-        self.progress = ttk.Progressbar(bottom, mode="indeterminate", length=self.px(160))
-        self.progress.pack(side="left", padx=8)
-        ttk.Label(bottom, textvariable=self.var_status).pack(side="left", padx=4, fill="x", expand=True)
-        # bar pemberitahuan update (ditampilkan kalau ada versi baru)
-        self.update_bar = ttk.Frame(self.root)
-        self.update_label = ttk.Label(self.update_bar, text="")
-        self.update_label.pack(side="left", padx=(4, 10))
-        self.btn_update = ttk.Button(self.update_bar, text=_("Update sekarang"), command=self.start_update)
-        self.btn_update.pack(side="left", padx=2)
-        ttk.Button(self.update_bar, text=_("Lihat perubahan"), command=self.open_release_page).pack(side="left", padx=2)
-        ttk.Button(self.update_bar, text=_("Tutup"), command=self.hide_update_bar).pack(side="left", padx=2)
+        self.btn_cancel.pack(side="left", padx=4)
+        self.btn_open = ttk.Button(bottom, text=_("Buka folder hasil"), command=self.open_result,
+                                   state="normal" if self.last_folder else "disabled")
+        self.btn_open.pack(side="right")
+        self.progress = ttk.Progressbar(bottom, mode="indeterminate", length=self.px(170))
+        self.progress.pack(side="left", padx=10)
+        ttk.Label(bottom, textvariable=self.var_status).pack(side="left", fill="x", expand=True)
         self._frames = [self.update_bar, top, self.nb, bottom]
+
+        self._bind_tree_actions()
+        self._update_comp_hint()
+        self._recolor()
+
+    def _build_menu(self) -> None:
+        bar = tk.Menu(self.root)
+        m_file = tk.Menu(bar, tearoff=0)
+        m_file.add_command(label=_("Buka project..."), accelerator="Ctrl+O", command=self.choose_aep)
+        m_file.add_command(label=_("Tambah project ke Batch..."), command=self.batch_add_files)
+        m_file.add_command(label=_("Tambah folder ke Batch..."), command=self.batch_add_folder)
+        m_file.add_separator()
+        m_file.add_command(label=_("Buka folder hasil"), command=self.open_result)
+        m_file.add_command(label=_("Buka laporan terakhir"), command=self.open_last_report)
+        m_file.add_separator()
+        m_file.add_command(label=_("Keluar"), command=self.on_close)
+        bar.add_cascade(label=_("File"), menu=m_file)
+
+        m_set = tk.Menu(bar, tearoff=0)
+        m_lang = tk.Menu(m_set, tearoff=0)
+        for code, name in LANGS.items():
+            m_lang.add_radiobutton(label=name, value=code, variable=self.var_lang, command=self._on_lang_menu)
+        m_set.add_cascade(label="Bahasa / Language / 言語", menu=m_lang)
+        m_theme = tk.Menu(m_set, tearoff=0)
+        follow = _("Ikuti sistem") if sys.platform == "darwin" else _("Ikuti Windows")
+        for code, label in (("system", follow), ("light", _("Terang")), ("dark", _("Gelap"))):
+            m_theme.add_radiobutton(label=label, value=code, variable=self.var_theme, command=self._on_theme_menu)
+        m_set.add_cascade(label=_("Tema"), menu=m_theme)
+        m_set.add_separator()
+        m_set.add_checkbutton(label=_("Cek update saat aplikasi dibuka"), variable=self.var_auto_update,
+                              command=lambda: self._save_settings(None))
+        if sendto.available():
+            m_set.add_checkbutton(label=_("Menu klik kanan \"Send to\" di Explorer"), variable=self.var_sendto,
+                                  command=self._on_sendto_menu)
+        bar.add_cascade(label=_("Pengaturan"), menu=m_set)
+
+        m_help = tk.Menu(bar, tearoff=0)
+        m_help.add_command(label=_("Cara pakai"), accelerator="F1", command=self.open_readme)
+        m_help.add_command(label=_("Cek update..."), command=lambda: self.check_updates(manual=True))
+        m_help.add_command(label=_("Halaman GitHub"), command=lambda: webbrowser.open(GITHUB_URL))
+        m_help.add_separator()
+        m_help.add_command(label=_("Tentang Collect Files Plus"), command=self.show_about)
+        bar.add_cascade(label=_("Bantuan"), menu=m_help)
+        self.root.configure(menu=bar)
+        self.menubar = bar
+
+    def _bind_keys(self) -> None:
+        r = self.root
+        r.bind("<Control-o>", lambda _e: self.choose_aep())
+        r.bind("<F5>", lambda _e: self.start_analyze())
+        r.bind("<Control-Return>", lambda _e: self.start_collect())
+        r.bind("<F1>", lambda _e: self.open_readme())
+        r.bind("<Escape>", lambda _e: self.cancel.set() if self.worker is not None and self.worker.is_alive() else None)
+        if sys.platform == "darwin":
+            r.bind("<Command-o>", lambda _e: self.choose_aep())
+            r.bind("<Command-Return>", lambda _e: self.start_collect())
+
+    def _bind_tree_actions(self) -> None:
+        """Klik dua kali / klik kanan pada baris tabel."""
+        for name, info in (("plugin", self.plugin_tree), ("font", self.font_tree), ("foot", self.foot_tree)):
+            info.tree.bind("<Double-1>", lambda e, n=name, t=info.tree: self._reveal_row(n, t.identify_row(e.y)))
+        self.batch_tree.tree.bind("<Double-1>", lambda e: self.batch_open(self.batch_tree.tree.identify_row(e.y)))
+        self.batch_tree.tree.bind("<Button-2>" if sys.platform == "darwin" else "<Button-3>", self._batch_menu)
+
+    def _reveal_row(self, kind: str, iid: str) -> None:
+        path = self.row_paths.get(kind, {}).get(iid)
+        if path is not None:
+            reveal(path)
+
+    def _set_tab_count(self, index: int, count: Optional[int]) -> None:
+        try:
+            base = self.tab_names[index]
+            self.nb.tab(index, text=base if count is None else "%s (%d)" % (base, count))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _update_comp_hint(self) -> None:
+        if self.aep is None:
+            text = _("Drag file .aep ke jendela ini, atau klik \"Pilih...\" di atas untuk membuka project.")
+        else:
+            text = _("Centang comp utama yang dipakai. Precomp di dalamnya ikut dibaca otomatis.")
+        self.comp_hint.configure(text=text)
 
     # ------------------------------------------------------- aksi
 
@@ -437,16 +685,15 @@ class App:
         if not self.aep:
             return
         if mode == "rq":
-            ids = {c.id for c in self.aep.rq_comps()}
+            ids = set(self.rq_ids)
             if not ids:
                 messagebox.showinfo(APP_TITLE, _("Render Queue di project ini kosong."))
                 return
         else:
-            act = self.aep.active_comp()
-            if act is None:
+            if self.active_id is None:
                 messagebox.showinfo(APP_TITLE, _("Tidak ada comp aktif yang tersimpan di project ini."))
                 return
-            ids = {act.id}
+            ids = {self.active_id}
         for iid in self.comp_tree.checked:
             self.comp_tree.set(iid, int(iid) in ids)
 
@@ -491,13 +738,13 @@ class App:
         return True
 
     def start_analyze(self) -> None:
-        if not self._validate_inputs(False):
+        if self._busy_now() or not self._validate_inputs(False):
             return
         opt = self.current_options()
         self._run("analyze", self._job_analyze, opt)
 
     def start_collect(self) -> None:
-        if not self._validate_inputs(True):
+        if self._busy_now() or not self._validate_inputs(True):
             return
         opt = self.current_options()
         self._save_settings(opt)
@@ -513,29 +760,50 @@ class App:
         if self.last_folder is not None:
             open_folder(self.last_folder)
 
-    # ------------------------------------------------- bahasa
+    def open_last_report(self) -> None:
+        if self.last_report is not None and Path(self.last_report).is_file():
+            open_folder(self.last_report)
+        else:
+            messagebox.showinfo(APP_TITLE, _("Belum ada laporan. Jalankan Collect dulu."))
 
-    def _show_hint(self) -> None:
-        if self.dnd_ok:
-            self.hint.configure(text=_("Tip: drag file .aep ke jendela ini. Banyak file atau folder sekaligus "
-                                       "masuk ke tab Batch."))
+    def open_readme(self) -> None:
+        path = docs_dir() / ("README_%s.txt" % get_language())
+        if not path.is_file():
+            path = docs_dir() / "README_en.txt"
+        open_folder(path)
 
-    def _on_lang_selected(self, _event=None) -> None:
-        names = {v: k for k, v in LANGS.items()}
-        self.change_language(names.get(self.lang_box.get(), "id"))
+    def show_about(self) -> None:
+        messagebox.showinfo(APP_TITLE, _("Collect Files Plus %s\n\nKumpulkan footage, font, dan plugin yang dipakai "
+                                         "project After Effects tanpa membuka After Effects.\n\nLisensi MIT\n%s")
+                            % (__version__, GITHUB_URL))
+
+    # ------------------------------------------------- bahasa & tema
+
+    def _on_lang_menu(self) -> None:
+        code = self.var_lang.get()
+        self.root.after_idle(lambda: self.change_language(code))
 
     def change_language(self, code: str) -> None:
         if code == get_language() or code not in LANGS:
             return
         if self.worker is not None and self.worker.is_alive():
-            self.lang_box.set(LANGS[get_language()])
+            self.var_lang.set(get_language())
             self.var_status.set(_("Tunggu proses yang sedang berjalan selesai dulu."))
             return
         set_language(code)
+        self.var_lang.set(code)
         self.settings["lang"] = code
         save_settings(self.settings)
+        self._apply_theme()                     # font Jepang + tinggi baris tabel
         self._rebuild()
         self.var_status.set(_("Bahasa diganti ke %s.") % LANGS[code])
+
+    def _on_theme_menu(self) -> None:
+        self._apply_theme()
+        self._recolor()
+        self._sync_titlebar()
+        self.settings["theme"] = self.var_theme.get()
+        save_settings(self.settings)
 
     def _rebuild(self) -> None:
         """Bangun ulang semua widget dengan bahasa baru, data yang sudah ada tetap."""
@@ -546,13 +814,16 @@ class App:
             tab = self.nb.index(self.nb.select())
         except Exception:  # noqa: BLE001
             tab = 0
+        old_menu = self.menubar
         for w in self._frames:
             w.destroy()
         self._build()
-        if self.aep is not None:
-            self._fill_comps(log=False)
-            for iid, val in comp_checked.items():
-                self.comp_tree.set(iid, val)
+        try:
+            old_menu.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+        if self.comp_rows:
+            self._render_comps(comp_checked)
         if self.analysis is not None:
             self._fill_analysis(log=False)
             for iid, val in plugin_checked.items():
@@ -560,18 +831,12 @@ class App:
             self._update_plugin_total()
         self._refresh_batch()
         if self.batch_run is not None:
-            done = {os.path.normcase(str(it.path)): it for it in self.batch_run.items}
-            for i, p in enumerate(self.batch_paths):
-                it = done.get(os.path.normcase(str(p)))
-                if it is not None:
-                    self.batch_tree.set_row(str(i), self._batch_values(it.path, it.scope, it.status_text,
-                                                                       it.result_name))
+            for i, it in enumerate(self.batch_run.items):
+                self.batch_tree.set_row(str(i), self._batch_values(it.path, it.scope, it.status_text, it.result_name),
+                                        tags=(BATCH_TAG.get(it.status, "muted"),))
         if log_text:
-            self.log.insert("end", log_text)
+            self._log(log_text, end="")
         self.nb.select(tab)
-        if self.last_folder is not None:
-            self.btn_open.configure(state="normal")
-        self._show_hint()
         if self.update_info is not None and not self.update_dismissed:
             self._show_update_bar()
 
@@ -614,9 +879,9 @@ class App:
         if info is None:
             return
         self.update_label.configure(text=_("Versi baru %s tersedia (kamu memakai %s).") % (info.version, __version__))
-        self.btn_update.configure(text=_("Update sekarang") if updater.can_self_update() and info.asset_url
-                                  else _("Download"))
-        self.update_bar.pack(fill="x", padx=8, pady=(8, 0), before=self._top)
+        mode = updater.update_mode(info)
+        self.btn_update.configure(text=_("Update sekarang") if mode in ("zip", "msi") else _("Download"))
+        self.update_bar.pack(fill="x", before=self._top)
 
     def hide_update_bar(self) -> None:
         self.update_dismissed = True
@@ -629,20 +894,26 @@ class App:
         info = self.update_info
         if info is None:
             return
-        if not (updater.can_self_update() and info.asset_url):
+        mode = updater.update_mode(info)
+        if mode == "manual":
             self.open_release_page()          # macOS / dari source / folder tidak bisa ditulisi
             return
         if self._busy_now():
             return
-        if not messagebox.askyesno(APP_TITLE, _("Download dan pasang versi %s sekarang?\n\nAplikasi akan ditutup "
-                                                "lalu dibuka lagi otomatis.") % info.version):
+        if mode == "msi":
+            question = _("Download dan pasang versi %s sekarang?\n\nInstaller akan berjalan dan Windows mungkin "
+                         "meminta izin (UAC). Aplikasi dibuka lagi setelah selesai.")
+        else:
+            question = _("Download dan pasang versi %s sekarang?\n\nAplikasi akan ditutup lalu dibuka lagi otomatis.")
+        if not messagebox.askyesno(APP_TITLE, question % info.version):
             return
-        self._run("update", self._job_update, info)
+        self._run("update", self._job_update, (info, mode), determinate=True)
 
-    def _job_update(self, info):
+    def _job_update(self, arg):
         import tempfile
         from .collector import Cancelled
         from .report import fmt_bytes
+        info, mode = arg
         tmp = Path(tempfile.mkdtemp(prefix="CollectFilesPlus-update-"))
         last = [0]
 
@@ -650,12 +921,16 @@ class App:
             if done - last[0] >= (1 << 19) or done == total:
                 last[0] = done
                 self._progress(_("Mengunduh update: %s dari %s") % (fmt_bytes(done), fmt_bytes(total) if total else "?"))
+                if total:
+                    self.events.put(("fraction", "", done / total))
         try:
-            zip_path = updater.download(info, tmp, progress=prog, cancel=self.cancel)
+            path = updater.download(info, tmp, progress=prog, cancel=self.cancel, kind=mode)
         except updater.UpdateCancelled:
             raise Cancelled()
         self._progress(_("Menyiapkan update..."))
-        return tmp, updater.extract_app(zip_path, tmp / "baru"), info.version
+        if mode == "msi":
+            return mode, tmp, path, info.version
+        return mode, tmp, updater.extract_app(path, tmp / "baru"), info.version
 
     def _show_update_result(self, ok: bool, detail: str) -> None:
         if ok:
@@ -708,9 +983,10 @@ class App:
     def _refresh_batch(self) -> None:
         self.batch_tree.clear()
         for i, p in enumerate(self.batch_paths):
-            self.batch_tree.add(self._batch_values(p), iid=str(i))
+            self.batch_tree.add(self._batch_values(p), iid=str(i), tags=("muted",))
         n = len(self.batch_paths)
         self.batch_count.configure(text=(_("%d project") % n) if n else "")
+        self._set_tab_count(5, n or None)
 
     def add_batch_paths(self, paths) -> int:
         if self._busy_now():
@@ -720,6 +996,7 @@ class App:
         known = {os.path.normcase(os.path.abspath(str(p))) for p in self.batch_paths}
         new = [p for p in found if os.path.normcase(os.path.abspath(str(p))) not in known]
         self.batch_paths.extend(new)
+        self.batch_run = None
         self._refresh_batch()
         self.nb.select(self.batch_tab)
         if not self.var_dest.get().strip() and self.batch_paths:
@@ -752,13 +1029,53 @@ class App:
             return
         sel = {int(i) for i in self.batch_tree.tree.selection()}
         self.batch_paths = [p for i, p in enumerate(self.batch_paths) if i not in sel]
+        self.batch_run = None
         self._refresh_batch()
 
     def batch_clear(self) -> None:
         if self._busy_now():
             return
         self.batch_paths = []
+        self.batch_run = None
         self._refresh_batch()
+
+    def _batch_item(self, iid: str):
+        """Hasil batch untuk baris ini (urutan baris = urutan project saat batch dijalankan)."""
+        if self.batch_run is None or not iid:
+            return None
+        try:
+            return self.batch_run.items[int(iid)]
+        except (ValueError, IndexError):
+            return None
+
+    def batch_open(self, iid: str, report: bool = False) -> None:
+        it = self._batch_item(iid)
+        if it is None or it.result is None:
+            return
+        if report and it.result.report is not None:
+            open_folder(it.result.report)
+        else:
+            open_folder(it.result.dest_root)
+
+    def _batch_menu(self, event) -> None:
+        iid = self.batch_tree.tree.identify_row(event.y)
+        if not iid:
+            return
+        self.batch_tree.tree.selection_set([iid])
+        it = self._batch_item(iid)
+        state = "normal" if it is not None and it.result is not None else "disabled"
+        if self.ctx_menu is None:
+            self.ctx_menu = tk.Menu(self.root, tearoff=0)
+        menu = self.ctx_menu
+        menu.delete(0, "end")
+        menu.add_command(label=_("Buka folder hasil"), command=lambda: self.batch_open(iid), state=state)
+        menu.add_command(label=_("Buka laporan"), command=lambda: self.batch_open(iid, report=True), state=state)
+        menu.add_separator()
+        menu.add_command(label=_("Hapus dari daftar"), command=self.batch_remove_selected)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
 
     def start_batch(self) -> None:
         if self._busy_now():
@@ -774,37 +1091,34 @@ class App:
         self._save_settings(None)
         paths = list(self.batch_paths)
         for i, p in enumerate(paths):
-            self.batch_tree.set_row(str(i), self._batch_values(p))
-        self._run("batch", self._job_batch, (paths, opt, self.var_batch_scope.get()))
+            self.batch_tree.set_row(str(i), self._batch_values(p), tags=("muted",))
+        self.batch_total = len(paths)
+        self._run("batch", self._job_batch, (paths, opt, self.var_batch_scope.get()), determinate=True)
 
     def _job_batch(self, arg):
         from .batch import collect_many
         paths, opt, scope = arg
 
         def on_item(i, it) -> None:
-            self.events.put(("item", "batch", (i, self._batch_values(it.path, it.scope, it.status_text,
-                                                                      it.result_name))))
+            self.events.put(("item", it.status, (i, self._batch_values(it.path, it.scope, it.status_text,
+                                                                          it.result_name))))
         return collect_many(paths, opt, scope, progress=self._progress, cancel=self.cancel, on_item=on_item)
 
-    def _sendto_label(self) -> str:
-        return (_("Hapus dari menu klik kanan \"Send to\"") if sendto.installed()
-                else _("Pasang di menu klik kanan \"Send to\""))
-
-    def toggle_sendto(self) -> None:
+    def _on_sendto_menu(self) -> None:
+        want = self.var_sendto.get()
         try:
-            if sendto.installed():
-                sendto.uninstall()
-                messagebox.showinfo(APP_TITLE, _("Collect Files Plus sudah dihapus dari menu Send to."))
-            else:
+            if want:
                 sendto.install()
                 messagebox.showinfo(APP_TITLE, _("Terpasang.\n\nCara pakai: di Explorer pilih satu atau banyak file "
                                                  ".aep (atau folder), klik kanan > Send to > Collect Files Plus.\n"
                                                  "Windows 11: klik \"Show more options\" dulu untuk melihat Send to.\n\n"
                                                  "Kalau folder aplikasi ini dipindah, pasang ulang dari sini."))
+            else:
+                sendto.uninstall()
+                messagebox.showinfo(APP_TITLE, _("Collect Files Plus sudah dihapus dari menu Send to."))
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror(APP_TITLE, _("Gagal: %s") % exc)
-        if self.btn_sendto is not None:
-            self.btn_sendto.configure(text=self._sendto_label())
+        self.var_sendto.set(sendto.installed())
 
     def on_close(self) -> None:
         if self.worker is not None and self.worker.is_alive():
@@ -816,11 +1130,11 @@ class App:
 
     # ------------------------------------------------- pekerjaan latar
 
-    def _run(self, kind: str, fn, arg) -> None:
+    def _run(self, kind: str, fn, arg, determinate: bool = False) -> None:
         if self.worker is not None and self.worker.is_alive():
             return
         self.cancel.clear()
-        self._busy(True)
+        self._busy(True, determinate)
         self.worker = threading.Thread(target=self._wrap, args=(kind, fn, arg), daemon=True)
         self.worker.start()
 
@@ -844,25 +1158,33 @@ class App:
         self._progress(_("Membaca %s ...") % Path(path).name)
         return AepProject(path)
 
+    def _fresh_aep(self):
+        """Project di memori sudah diubah collect sebelumnya (relink/reduce): baca ulang dulu."""
+        if self.aep_stale:
+            from .project import AepProject
+            self._progress(_("Membaca %s ...") % self.aep.path.name)
+            self.aep = AepProject(self.aep.path)
+            self.aep_stale = False
+        return self.aep
+
     def _job_analyze(self, opt):
         from .collector import analyze
-        return analyze(self.aep, opt, progress=self._progress, cancel=self.cancel), self.options_key(opt)
+        return analyze(self._fresh_aep(), opt, progress=self._progress, cancel=self.cancel), self.options_key(opt)
 
     def _job_collect(self, arg):
         from .collector import analyze, collect
         if arg is not None:
             # analisa ulang dengan opsi terbaru (tanpa review daftar plugin)
             opt, prev = arg
-            self.analysis = analyze(self.aep, opt, progress=self._progress, cancel=self.cancel)
+            self.analysis = analyze(self._fresh_aep(), opt, progress=self._progress, cancel=self.cancel)
             self.analysis_key = self.options_key(opt)
             for cd in self.analysis.candidates:
                 if cd.label in prev:
                     cd.selected = prev[cd.label]
         res = collect(self.analysis, progress=self._progress, cancel=self.cancel)
-        # project di memori sudah diubah (relink/reduce): baca ulang untuk proses berikutnya
-        from .project import AepProject
-        self.aep = AepProject(self.aep.path)
-        self.analysis = None
+        # project di memori sudah diubah (relink/reduce): dibaca ulang nanti, saat diperlukan.
+        # Tabel tetap menampilkan analisa ini; Collect berikutnya menganalisa ulang (centang plugin tetap).
+        self.aep_stale = True
         self.analysis_key = None
         return res
 
@@ -872,9 +1194,13 @@ class App:
                 ev, kind, payload = self.events.get_nowait()
                 if ev == "progress":
                     self.var_status.set(payload)
+                elif ev == "fraction":
+                    self.progress.configure(value=max(0.0, min(100.0, payload * 100)))
                 elif ev == "item":
                     i, values = payload
-                    self.batch_tree.set_row(str(i), values)
+                    self.batch_tree.set_row(str(i), values, tags=(BATCH_TAG.get(kind, "muted"),))
+                    if kind != "jalan" and self.batch_total:
+                        self.progress.configure(value=100.0 * (i + 1) / self.batch_total)
                 elif ev == "drop":
                     self.on_drop(payload)
                 elif ev == "update-check":
@@ -890,7 +1216,7 @@ class App:
                                                "coba pakai script JSX (folder jsx) dari dalam After Effects.") % first)
                     else:
                         messagebox.showerror(APP_TITLE, _("Terjadi error:\n%s\n\nDetail ada di tab Log.") % first)
-                    self.var_status.set("Error.")
+                    self.var_status.set(_("Error."))
                 elif ev == "cancelled":
                     self._busy(False)
                     self.var_status.set(_("Dibatalkan."))
@@ -901,22 +1227,29 @@ class App:
             pass
         self.root.after(100, self._poll)
 
-    def _busy(self, busy: bool) -> None:
+    def _busy(self, busy: bool, determinate: bool = False) -> None:
         state = "disabled" if busy else "normal"
         self.btn_analyze.configure(state=state)
         self.btn_collect.configure(state=state)
         self.btn_batch.configure(state=state)
         self.btn_cancel.configure(state="normal" if busy else "disabled")
-        if busy:
+        if busy and determinate:
+            self.progress.configure(mode="determinate", value=0)
+        elif busy:
+            self.progress.configure(mode="indeterminate")
             self.progress.start(12)
         else:
             self.progress.stop()
+            self.progress.configure(mode="determinate", value=0)
 
     def _done(self, kind: str, payload) -> None:
         if kind == "update":
-            tmp, new_dir, version = payload
+            mode, tmp, path, version = payload
             try:
-                updater.launch_apply(new_dir, tmp, version)
+                if mode == "msi":
+                    updater.launch_msi(path, tmp, version)
+                else:
+                    updater.launch_apply(path, tmp, version)
             except Exception as exc:  # noqa: BLE001
                 messagebox.showerror(APP_TITLE, _("Gagal memulai update: %s") % exc)
                 return
@@ -925,9 +1258,14 @@ class App:
             return
         if kind == "load":
             self.aep = payload
+            self.aep_stale = False
             self._fill_comps()
+            self._update_comp_hint()
+            for idx in (1, 2, 3, 4):
+                self._set_tab_count(idx, None)
             self.var_status.set(_("Project terbaca: %d comp. Centang comp utama, lalu klik Analisa.") % len(self.aep.comps))
             self._log(_("Membuka %s") % self.aep.path)
+            self.nb.select(0)
         elif kind == "analyze":
             self.analysis, self.analysis_key = payload
             self._fill_analysis()
@@ -937,6 +1275,7 @@ class App:
             run = payload
             self.batch_run = run
             self.last_folder = run.dest
+            self.last_report = run.summary
             self.btn_open.configure(state="normal")
             msg = _("Batch selesai: %s\n\nFolder tujuan: %s") % (run.headline(), run.dest)
             if run.summary is not None:
@@ -951,6 +1290,7 @@ class App:
         elif kind == "collect":
             self.result = payload
             self.last_folder = payload.dest_root
+            self.last_report = payload.report
             self.btn_open.configure(state="normal")
             msg = _("Selesai.\n\nHasil: %s") % payload.dest_root
             if not payload.saved_ok:
@@ -963,31 +1303,42 @@ class App:
                 open_folder(payload.dest_root)
 
     def _fill_comps(self, log: bool = True) -> None:
-        self.comp_tree.clear()
-        rq = {c.id for c in self.aep.rq_comps()}
-        act = self.aep.active_comp()
-        users = self.aep.precomp_users()
-        mode, roots = self.aep.default_roots()
+        """Baca daftar comp dari project yang baru dibuka (disimpan, dipakai lagi saat ganti bahasa)."""
+        aep = self.aep
+        self.rq_ids = {c.id for c in aep.rq_comps()}
+        act = aep.active_comp()
+        self.active_id = act.id if act is not None else None
+        users = aep.precomp_users()
+        mode, roots = aep.default_roots()
         default_ids = {c.id for c in roots}
-        for c in self.aep.comps:
-            tags = []
-            if c.id in rq:
-                tags.append("Render Queue")
-            if act is not None and c.id == act.id:
-                tags.append(_("comp aktif"))
-            if users.get(c.id):
-                tags.append(_("precomp di %d comp") % users[c.id])
-            self.comp_tree.add(str(c.id), c.name, ["; ".join(tags)], checked=c.id in default_ids)
+        self.comp_rows = [(c.id, c.name, users.get(c.id, 0), c.id in default_ids) for c in aep.comps]
+        self._render_comps()
         if log:
             note = {"rq": _("comp di Render Queue"), "active": _("comp aktif saat project disimpan"),
                     "all": _("semua comp")}[mode]
             self._log(_("Pilihan awal: %s.") % note)
 
+    def _render_comps(self, checked: Optional[Dict[str, bool]] = None) -> None:
+        self.comp_tree.clear()
+        for cid, name, n_users, default in self.comp_rows:
+            notes = []
+            if cid in self.rq_ids:
+                notes.append(_("Render Queue"))
+            if cid == self.active_id:
+                notes.append(_("comp aktif"))
+            if n_users:
+                notes.append(_("precomp di %d comp") % n_users)
+            iid = str(cid)
+            self.comp_tree.add(iid, name, ["; ".join(notes)],
+                               checked=default if checked is None else checked.get(iid, default),
+                               tags=("run",) if cid in self.rq_ids else ())
+
     def _fill_analysis(self, log: bool = True) -> None:
         from .plugins import how_label
-        from .report import effect_status, fmt_bytes, kind_label
+        from .report import effect_status, effect_status_key, fmt_bytes, kind_label
 
         an = self.analysis
+        self.row_paths = {"plugin": {}, "font": {}, "foot": {}}
         self.plugin_tree.clear()
         for i, cd in enumerate(an.candidates):
             names = ", ".join(e.title for e in cd.effects)
@@ -995,31 +1346,47 @@ class App:
                 names += _("  (+%d efek lain di file ini)") % cd.others
             how = sorted({how_label(e.match.how) for e in cd.effects if e.match})
             label = ("" if cd.strict else _("(perkiraan) ")) + cd.label
-            self.plugin_tree.add(str(i), label, [names, fmt_bytes(cd.size), "; ".join(how)], checked=cd.selected)
-        for j, e in enumerate([e for e in an.plugin_effects if e.candidate is None]):
-            self.plugin_tree.add("x%d" % j, _("TIDAK KETEMU: ") + e.title, [e.match_name, "", ""], checkable=False)
+            self.plugin_tree.add(str(i), label, [names, fmt_bytes(cd.size), "; ".join(how)], checked=cd.selected,
+                                 tags=() if cd.strict else ("muted",))
+            self.row_paths["plugin"][str(i)] = cd.plugin.target
+        missing_fx = [e for e in an.plugin_effects if e.candidate is None]
+        for j, e in enumerate(missing_fx):
+            self.plugin_tree.add("x%d" % j, _("TIDAK KETEMU: ") + e.title, [e.match_name, "", ""], checkable=False,
+                                 tags=("error",))
         self._update_plugin_total()
 
         self.font_tree.clear()
         for f in an.fonts:
             status = {"ada": _("akan dicopy"), "adobe": _("Adobe Fonts (aktifkan di CC)"),
                       "tidak-ketemu": _("tidak terinstall di sini")}[f.status]
-            self.font_tree.add([f.post_script_name, str(f.face.path) if f.face else "", status])
+            tag = {"ada": (), "adobe": ("muted",), "tidak-ketemu": ("warn",)}[f.status]
+            iid = self.font_tree.add([f.post_script_name, str(f.face.path) if f.face else "", status], tags=tag)
+            if f.face is not None:
+                self.row_paths["font"][iid] = f.face.path
 
         self.foot_tree.clear()
         for fe in an.footage:
             status = _("akan dicopy") if fe.exists else _("HILANG")
             if fe.is_sequence:
                 status += _(" (sequence %d frame)") % len(fe.files)
-            self.foot_tree.add([", ".join(fe.names), str(fe.src), fmt_bytes(fe.size) if fe.exists else "", status])
+            iid = self.foot_tree.add([", ".join(fe.names), str(fe.src), fmt_bytes(fe.size) if fe.exists else "", status],
+                                     tags=() if fe.exists else ("error",))
+            self.row_paths["foot"][iid] = fe.src
 
         self.fx_tree.clear()
         for e in an.effects:
             _tag, status = effect_status(e)
-            self.fx_tree.add([e.title, ", ".join(e.names), e.match_name, kind_label(e.kind), e.count, status])
+            key = effect_status_key(e)
+            tag = {"not_found": ("error",), "copy_failed": ("error",), "guess": ("muted",), "unchecked": ("muted",),
+                   "builtin": ("muted",)}.get(key, ())
+            self.fx_tree.add([e.title, ", ".join(e.names), e.match_name, kind_label(e.kind), e.count, status], tags=tag)
         for e in an.disabled_only:
             self.fx_tree.add([e.title, ", ".join(e.names), e.match_name, kind_label(e.kind), e.count,
-                              _("dimatikan (dilewati)")])
+                              _("dimatikan (dilewati)")], tags=("muted",))
+        self._set_tab_count(1, len(an.candidates) + len(missing_fx))
+        self._set_tab_count(2, len(an.fonts))
+        self._set_tab_count(3, len(an.footage))
+        self._set_tab_count(4, len(an.effects) + len(an.disabled_only))
         if log:
             self._log(_("Analisa: %d efek (%d plugin pihak ketiga), %d file plugin, %d font, %d footage.") % (
                 len(an.effects), len(an.plugin_effects), len(an.candidates), len(an.fonts), len(an.footage)))
@@ -1050,9 +1417,11 @@ class App:
         self.plugin_total.configure(text=_("%d dari %d file plugin dicentang, total %s") % (
             n, len(self.analysis.candidates), fmt_bytes(size)))
 
-    def _log(self, text: str) -> None:
-        self.log.insert("end", text + "\n")
+    def _log(self, text: str, end: str = "\n") -> None:
+        self.log.configure(state="normal")       # kotak Log hanya-baca untuk pengguna
+        self.log.insert("end", text + end)
         self.log.see("end")
+        self.log.configure(state="disabled")
 
     def _save_settings(self, opt) -> None:
         s = self.settings
@@ -1065,6 +1434,19 @@ class App:
         s["support_files"] = self.opt_support.get()
         s["presets"] = self.opt_presets.get()
         s["batch_scope"] = self.var_batch_scope.get()
+        s["check_updates"] = self.var_auto_update.get()
+        s["theme"] = self.var_theme.get()
+        try:
+            zoomed = self.root.state() == "zoomed"
+        except Exception:  # noqa: BLE001
+            zoomed = False
+        s["maximized"] = zoomed
+        try:
+            geom = self.root.geometry()
+            if not zoomed and isinstance(geom, str) and re.match(r"^\d+x\d+", geom):
+                s["geometry"] = geom
+        except Exception:  # noqa: BLE001
+            pass
         save_settings(s)
 
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "collect-files-plus"
 dynamic = ["version"]
-description = "Collect Files untuk After Effects tanpa membuka After Effects: footage, font, dan plugin yang benar-benar dipakai project."
+description = "Collect Files for After Effects without opening After Effects: the footage, fonts and plugin files a project actually uses."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE", "NOTICE.md"]
@@ -14,6 +14,7 @@ requires-python = ">=3.10"
 dependencies = [
     "py-aep==0.19.0",
     "fonttools>=4.38",
+    "sv-ttk>=2.6",
     "certifi; sys_platform == 'darwin'",
 ]
 keywords = ["after-effects", "aep", "collect-files", "plugins", "fonts", "amv"]
@@ -22,7 +23,9 @@ classifiers = [
     "Environment :: Win32 (MS Windows)",
     "Environment :: MacOS X",
     "Intended Audience :: End Users/Desktop",
+    "Natural Language :: English",
     "Natural Language :: Indonesian",
+    "Natural Language :: Japanese",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
@@ -51,7 +54,7 @@ version = { attr = "collect_files_plus.__version__" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-collect_files_plus = ["assets/*.png"]
+collect_files_plus = ["assets/*.png", "docs/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

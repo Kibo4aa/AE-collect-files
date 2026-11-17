@@ -107,3 +107,71 @@ def test_pipl_read_once_per_file(tmp_path: Path, monkeypatch):
     second = analyze(aep, Options(dest_dir=tmp_path / "o"), env)
     assert len(calls) == n
     assert sorted(c.label for c in first.candidates) == sorted(c.label for c in second.candidates)
+
+
+def test_pipl_cache_on_disk(tmp_path: Path, monkeypatch):
+    """Isi PiPL disimpan di disk: aplikasi yang dibuka lagi tidak membaca ulang file plugin yang sama."""
+    import os
+    mc = make_plugin_tree(tmp_path)
+    env = env_for(tmp_path, plugin_roots=[PluginRoot(mc, "MediaCore", 1)])
+    aep = AepProject(make_fx_project(tmp_path))
+    first = analyze(aep, Options(dest_dir=tmp_path / "o"), env)
+    cache = plugins.entry_cache_path()
+    assert cache.is_file() and cache.parent == Path(os.environ["COLLECT_FILES_PLUS_CACHE_DIR"])
+
+    plugins._ENTRY_CACHE.clear()                      # seperti aplikasi baru dibuka
+    plugins._DISK.update(loaded=False, dirty=False)
+    calls = []
+    real = plugins.read_plugin_pipl
+    monkeypatch.setattr(plugins, "read_plugin_pipl", lambda t, r: calls.append(t.name) or real(t, r))
+    second = analyze(aep, Options(dest_dir=tmp_path / "o"), env)
+    assert calls == []
+    assert sorted(c.label for c in first.candidates) == sorted(c.label for c in second.candidates)
+
+    blur = mc / "BorisFX" / "Continuum" / "BCC_Blur.aex"
+    blur.write_bytes(blur.read_bytes() + b"\0")       # file berubah -> dibaca ulang, yang lain tetap dari cache
+    plugins._ENTRY_CACHE.clear()
+    plugins._DISK.update(loaded=False, dirty=False)
+    analyze(aep, Options(dest_dir=tmp_path / "o"), env)
+    assert calls == ["BCC_Blur.aex"]
+
+    cache.write_text("rusak", encoding="utf-8")       # cache rusak diabaikan
+    plugins._ENTRY_CACHE.clear()
+    plugins._DISK.update(loaded=False, dirty=False)
+    third = analyze(aep, Options(dest_dir=tmp_path / "o"), env)
+    assert len(third.candidates) == len(first.candidates)
+
+
+def test_copy_many_parallel_and_cancel(tmp_path: Path, monkeypatch):
+    import threading
+    from collect_files_plus import collector
+    src = tmp_path / "seq"
+    src.mkdir()
+    files = []
+    for i in range(60):
+        f = src / ("frame_%04d.png" % i)
+        f.write_bytes(bytes([i]) * (100 + i))
+        files.append(f)
+    done = []
+    collector.copy_many(files, tmp_path / "out", on_done=done.append)
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == [f.name for f in files]
+    assert (tmp_path / "out" / "frame_0042.png").read_bytes() == bytes([42]) * 142
+    assert done == list(range(1, 61))
+
+    cancel = threading.Event()
+
+    def tick(n):
+        if n == 10:
+            cancel.set()
+    with pytest.raises(collector.Cancelled):
+        collector.copy_many(files, tmp_path / "out2", on_done=tick, cancel=cancel)
+
+    real = collector.copy_file
+
+    def flaky(f, dest, **kw):
+        if f.name == "frame_0030.png":
+            raise OSError("disk penuh")
+        return real(f, dest, **kw)
+    monkeypatch.setattr(collector, "copy_file", flaky)
+    with pytest.raises(OSError):
+        collector.copy_many(files, tmp_path / "out3")

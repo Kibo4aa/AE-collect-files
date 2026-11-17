@@ -14,6 +14,25 @@ def _finish(app):
     app._poll()
 
 
+def _submenu(menu, label):
+    return menu.entry(label)["menu"]
+
+
+def _menu_with(app, label):
+    """Menu (di menubar) yang berisi item dengan label ini."""
+    for top in app.menubar.entries:
+        if top["kind"] == "cascade" and label in top["menu"].labels():
+            return top["menu"]
+    raise KeyError(label)
+
+
+def _choose_language(app, root, name):
+    """Seperti memilih bahasa dari menu Pengaturan > Bahasa / Language / 言語."""
+    lang = _submenu(_menu_with(app, "Bahasa / Language / 言語"), "Bahasa / Language / 言語")
+    lang.invoke(name)
+    root.after_calls.pop()()                 # bahasa diganti setelah menu tertutup (after_idle)
+
+
 @pytest.fixture
 def gui(monkeypatch, tmp_path):
     gui, mods = fake_tkinter.install(monkeypatch)
@@ -133,8 +152,8 @@ def test_gui_scales_on_high_dpi(gui, tmp_path):
     root.dpi = 144.0                    # Windows 150%
     app = gui.App(root)
     assert app.scale == 1.5
-    assert root.geom == "1620x1080"
-    assert mods["tkinter.ttk"].Style.configured["Treeview"]["rowheight"] == 32
+    assert root.geom == "1650x1110"
+    assert mods["tkinter.ttk"].Style.configured["Treeview"]["rowheight"] == 37
     assert root.icon is not None and root.icon.file.endswith("icon.png")
 
 
@@ -229,7 +248,7 @@ def test_gui_switch_language_keeps_state(gui, tmp_path, monkeypatch):
     monkeypatch.setattr(collector, "Environment", lambda: env)
     root = mods["tkinter"].Tk()
     app = gui.App(root)
-    assert i18n.get_language() == "id" and app.lang_box.get() == "Bahasa Indonesia"
+    assert i18n.get_language() == "id" and app.var_lang.get() == "id"
     app.var_aep.set(str(make_fx_project(tmp_path)))
     app.load_project()
     _finish(app)
@@ -241,9 +260,11 @@ def test_gui_switch_language_keeps_state(gui, tmp_path, monkeypatch):
     app.batch_paths = [tmp_path / "x.aep"]
     old_nb = app.nb
 
-    app.lang_box.choose("English")
-    assert i18n.get_language() == "en" and app.nb is not old_nb and old_nb.destroyed
-    assert app.nb.tab_texts()[:3] == ["1. Comps & options", "2. Plugins", "3. Fonts"]
+    old_menu = app.menubar
+    _choose_language(app, root, "English")
+    assert i18n.get_language() == "en" and app.nb is not old_nb and old_nb.destroyed and old_menu.destroyed
+    assert app.nb.tab_texts()[:3] == ["1. Comps & options", "2. Plugins (3)", "3. Fonts (1)"]
+    assert [e["label"] for e in app.menubar.entries] == ["File", "Settings", "Help"]
     assert app.plugin_tree.checked[kaca] is False                 # centang tetap
     assert all(app.comp_tree.checked.values())
     assert app.plugin_total.kw["text"] == "2 of 3 plugin files ticked, total %s" % \
@@ -262,8 +283,9 @@ def test_gui_switch_language_keeps_state(gui, tmp_path, monkeypatch):
     assert not any(f.endswith("Kaca.aex") for f in files)
     assert (app.result.dest_root / "Efek_effect_list.csv").is_file()
 
-    app.lang_box.choose("Bahasa Indonesia")
+    _choose_language(app, root, "Bahasa Indonesia")
     assert i18n.get_language() == "id" and app.nb.tab_texts()[0] == "1. Comp & opsi"
+    assert [e["label"] for e in app.menubar.entries] == ["File", "Pengaturan", "Bantuan"]
 
 
 def test_gui_language_defaults(gui, tmp_path, monkeypatch):
@@ -277,7 +299,186 @@ def test_gui_language_defaults(gui, tmp_path, monkeypatch):
     assert i18n.get_language() == "id"
     gui.save_settings({"dest": str(tmp_path), "lang": "en"})
     app = gui.App(mods["tkinter"].Tk())
-    assert i18n.get_language() == "en" and app.lang_box.get() == "English"
+    assert i18n.get_language() == "en" and app.var_lang.get() == "en"
+    monkeypatch.setenv(i18n.ENV_VAR, "ja")
+    (tmp_path / "settings.json").unlink()
+    app = gui.App(mods["tkinter"].Tk())               # Windows berbahasa Jepang -> 日本語
+    assert i18n.get_language() == "ja" and app.nb.tab_texts()[0] == "1. コンポとオプション"
+
+
+def test_gui_menus_help_and_theme(gui, tmp_path, monkeypatch):
+    gui, mods = gui
+    from collect_files_plus import i18n
+    opened = []
+    monkeypatch.setattr(gui, "open_folder", lambda p: opened.append(p))
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    assert [e["label"] for e in app.menubar.entries] == ["File", "Pengaturan", "Bantuan"]
+    m_file = _menu_with(app, "Buka project...")
+    assert m_file.labels() == ["Buka project...", "Tambah project ke Batch...", "Tambah folder ke Batch...",
+                               "Buka folder hasil", "Buka laporan terakhir", "Keluar"]
+    m_file.invoke("Buka laporan terakhir")                       # belum ada laporan
+    assert "Belum ada laporan" in mods["tkinter.messagebox"].log[-1][1]
+
+    m_help = _menu_with(app, "Cara pakai")
+    m_help.invoke("Cara pakai")
+    assert opened[-1].name == "README_id.txt" and opened[-1].is_file()
+    app.change_language("ja")
+    _menu_with(app, "使い方").invoke("使い方")
+    assert opened[-1].name == "README_ja.txt" and opened[-1].is_file()
+    app.change_language("en")
+    _menu_with(app, "How to use").invoke("How to use")
+    assert opened[-1].name == "README_en.txt" and i18n.get_language() == "en"
+
+    m_set = _menu_with(app, "Theme")
+    _submenu(m_set, "Theme").invoke("Dark")
+    assert app.var_theme.get() == "dark" and gui.load_settings()["theme"] == "dark"
+    m_set.invoke("Check for updates when the app opens")         # dimatikan
+    assert gui.load_settings()["check_updates"] is False
+    app.on_close()
+    root2 = mods["tkinter"].Tk()
+    app2 = gui.App(root2)
+    assert app2.var_theme.get() == "dark" and app2.var_auto_update.get() is False
+    assert app2.check_updates not in root2.after_calls           # cek otomatis dimatikan
+
+    keys = root2.bindings
+    for seq in ("<Control-o>", "<F5>", "<Control-Return>", "<F1>", "<Escape>"):
+        assert seq in keys, seq
+
+
+def test_gui_window_size_is_remembered(gui, tmp_path):
+    gui, mods = gui
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    root.geom = "1200x800+40+30"                                 # jendela digeser & diperbesar
+    app.on_close()
+    assert gui.load_settings()["geometry"] == "1200x800+40+30"
+    root2 = mods["tkinter"].Tk()
+    gui.App(root2)
+    assert root2.geom == "1200x800"                              # ukuran saja; posisi diatur Windows
+    gui.save_settings({"geometry": "rusak"})
+    root3 = mods["tkinter"].Tk()
+    gui.App(root3)
+    assert root3.geom == "1100x740"
+
+
+def test_gui_tab_counts_reveal_and_lazy_reload(gui, tmp_path, monkeypatch):
+    gui, mods = gui
+    from collect_files_plus import collector, project
+    mc = make_plugin_tree(tmp_path)
+    env = env_for(tmp_path, plugin_roots=[PluginRoot(mc, "MediaCore", 1)])
+    monkeypatch.setattr(collector, "Environment", lambda: env)
+    shown = []
+    monkeypatch.setattr(gui, "reveal", lambda p: shown.append(p))
+    loads = []
+    real = project.AepProject
+    monkeypatch.setattr(project, "AepProject", lambda p: loads.append(p) or real(p))
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    assert "Drag file .aep" in app.comp_hint.kw["text"]
+    app.var_aep.set(str(make_project(tmp_path)))
+    app.load_project()
+    _finish(app)
+    assert "Centang comp utama" in app.comp_hint.kw["text"]
+    app.var_dest.set(str(tmp_path / "out"))
+    app.opt_reduce.set(True)
+    first = [i for i, l in app.comp_tree.labels.items() if l == "Main"][0]
+    for iid in app.comp_tree.checked:
+        app.comp_tree.set(iid, iid == first)
+    app.start_analyze()
+    _finish(app)
+    tabs = app.nb.tab_texts()
+    assert tabs[1] == "2. Plugin (0)" and tabs[2] == "3. Font (1)" and tabs[3].startswith("4. Footage (")
+    rows = app.foot_tree.tree.items
+    missing = [i for i, r in rows.items() if r["values"][3] == "HILANG"]
+    assert missing and rows[missing[0]]["tags"] == ("error",)
+    app._reveal_row("foot", missing[0])
+    assert shown and shown[-1].name == "missing.png"
+
+    n = len(loads)
+    app.start_collect()
+    _finish(app)
+    assert app.aep_stale and len(loads) == n                     # tidak dibaca ulang setelah collect
+    assert app.last_report == app.result.report and app.result.report.is_file()
+    app.change_language("en")                                    # daftar comp tetap 3 walau project di memori di-reduce
+    assert len(app.comp_tree.labels) == 3 and app.comp_tree.checked[first] is True
+    assert len(app.foot_tree.tree.items) == len(rows)            # tabel analisa tetap tampil
+    app.start_analyze()                                          # baru dibaca ulang saat dibutuhkan
+    _finish(app)
+    assert len(loads) == n + 1 and not app.aep_stale
+
+    opened = []
+    monkeypatch.setattr(gui, "open_folder", lambda p: opened.append(p))
+    _menu_with(app, "Open last report").invoke("Open last report")
+    assert opened == [app.result.report]
+
+
+def test_gui_batch_context_menu_and_progress(gui, tmp_path, monkeypatch):
+    gui, mods = gui
+    from collect_files_plus import collector
+    env = env_for(tmp_path)
+    monkeypatch.setattr(collector, "Environment", lambda: env)
+    opened = []
+    monkeypatch.setattr(gui, "open_folder", lambda p: opened.append(p))
+    p1 = make_project(tmp_path / "A")
+    p2 = make_project(tmp_path / "B")
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    app.add_batch_paths([str(p1), str(p2)])
+    assert app.nb.tab_texts()[5] == "Batch (banyak project) (2)"
+    app.var_dest.set(str(tmp_path / "out"))
+    app.start_batch()
+    assert app.progress.kw["mode"] == "determinate"
+    _finish(app)
+    assert app.progress.kw["value"] == 0                          # selesai -> direset
+    tree = app.batch_tree.tree
+    assert tree.items["0"]["tags"] == ("warn",) and tree.items["1"]["tags"] == ("warn",)
+
+    event = type("E", (), {"x": 1, "y": 1, "x_root": 5, "y_root": 5})()
+    tree.row_at = "1"
+    app._batch_menu(event)
+    menu = app.ctx_menu
+    assert menu.labels() == ["Buka folder hasil", "Buka laporan", "Hapus dari daftar"] and menu.popped
+    menu.invoke("Buka laporan")
+    assert opened[-1] == app.batch_run.items[1].result.report
+    menu.invoke("Buka folder hasil")
+    assert opened[-1] == app.batch_run.items[1].result.dest_root
+    assert opened[-1].name == "Proyek Saya_Collected (2)"
+    app.batch_open("0")                                          # klik dua kali
+    assert opened[-1].name == "Proyek Saya_Collected"
+    menu.invoke("Hapus dari daftar")
+    assert [p.parent.parent.name for p in app.batch_paths] == ["A"] and app.batch_run is None
+    app._batch_menu(event)                                       # baris 1 sudah tidak ada
+    tree.row_at = "0"
+    app._batch_menu(event)
+    assert app.ctx_menu.entry("Buka laporan")["state"] == "disabled"   # belum di-collect lagi
+
+
+def test_gui_japanese_ui_has_no_indonesian(gui, tmp_path, monkeypatch):
+    gui, mods = gui
+    from collect_files_plus import collector
+    from test_i18n import _indonesian_words
+    mc = make_plugin_tree(tmp_path)
+    env = env_for(tmp_path, plugin_roots=[PluginRoot(mc, "MediaCore", 1)])
+    monkeypatch.setattr(collector, "Environment", lambda: env)
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    app.var_aep.set(str(make_fx_project(tmp_path)))
+    app.load_project()
+    _finish(app)
+    app.var_dest.set(str(tmp_path / "out"))
+    app.start_analyze()
+    _finish(app)
+    app.add_batch_paths([str(tmp_path / "fx")])
+    app.change_language("ja")
+    texts = root.all_texts()
+    assert "分析" in texts and "収集" in texts and "すべてのプロジェクトを収集" in texts
+    assert app.nb.tab_texts() == ["1. コンポとオプション", "2. プラグイン (3)", "3. フォント (1)", "4. フッテージ (0)",
+                                  "5. すべてのエフェクト (7)", "バッチ (複数プロジェクト) (1)", "ログ"]
+    assert [e["label"] for e in app.menubar.entries] == ["ファイル", "設定", "ヘルプ"]
+    values = [str(v) for t in app._trees() for r in t.items.values() for v in [r["text"]] + r["values"]]
+    assert _indonesian_words(" | ".join(texts + values)) == []
+    assert app.plugin_total.kw["text"].startswith("3 / 3 個のプラグインファイルにチェック")
 
 
 def _wait_update_event(app, attr="update_info", tries=200):
@@ -308,11 +509,11 @@ def test_gui_update_banner_and_install(gui, tmp_path, monkeypatch):
     app.start_update()
     assert opened == [info.page]
 
-    # build exe Windows: download -> extract -> skrip pemasang -> aplikasi ditutup
-    monkeypatch.setattr(updater, "can_self_update", lambda: True)
+    # build exe Windows (zip): download -> extract -> skrip pemasang -> aplikasi ditutup
+    monkeypatch.setattr(updater, "update_mode", lambda i: "zip")
     calls = []
-    monkeypatch.setattr(updater, "download", lambda i, d, progress=None, cancel=None:
-                        (progress(10, 20), progress(20, 20), calls.append(("dl", d)), d / "u.zip")[-1])
+    monkeypatch.setattr(updater, "download", lambda i, d, progress=None, cancel=None, kind="zip":
+                        (progress(10, 20), progress(20, 20), calls.append(("dl", d, kind)), d / "u.zip")[-1])
     monkeypatch.setattr(updater, "extract_app", lambda z, d: calls.append(("ex", z)) or d / "CollectFilesPlus")
     monkeypatch.setattr(updater, "launch_apply", lambda new, tmp, ver: calls.append(("apply", new, tmp, ver)))
     app._show_update_bar()
@@ -323,9 +524,33 @@ def test_gui_update_banner_and_install(gui, tmp_path, monkeypatch):
     app.start_update()
     _finish(app)
     kinds = [c[0] for c in calls]
-    assert kinds == ["dl", "ex", "apply"] and calls[2][3] == "9.9.0"
+    assert kinds == ["dl", "ex", "apply"] and calls[2][3] == "9.9.0" and calls[0][2] == "zip"
     assert calls[2][1] == calls[2][2] / "baru" / "CollectFilesPlus"
     assert root.destroyed
+    assert any(k == "askyesno" and "dibuka lagi otomatis" in m for k, m in mods["tkinter.messagebox"].log)
+
+
+def test_gui_update_msi(gui, tmp_path, monkeypatch):
+    """Dipasang lewat .msi: installer baru diunduh lalu dijalankan (tanpa extract)."""
+    gui, mods = gui
+    from collect_files_plus import updater
+    info = updater.UpdateInfo("9.9.0", "v9.9.0", "p", asset_url="u.zip", msi_name="u.msi", msi_url="u.msi")
+    monkeypatch.setattr(updater, "update_mode", lambda i: "msi")
+    calls = []
+    monkeypatch.setattr(updater, "download", lambda i, d, progress=None, cancel=None, kind="zip":
+                        calls.append(("dl", kind)) or d / "u.msi")
+    monkeypatch.setattr(updater, "extract_app", lambda z, d: calls.append(("ex",)))
+    monkeypatch.setattr(updater, "launch_msi", lambda msi, tmp, ver: calls.append(("msi", msi.name, ver)))
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    app.update_info = info
+    app._show_update_bar()
+    assert app.btn_update.kw["text"] == "Update sekarang"
+    mods["tkinter.messagebox"].answer_yes = True
+    app.start_update()
+    _finish(app)
+    assert calls == [("dl", "msi"), ("msi", "u.msi", "9.9.0")] and root.destroyed
+    assert any(k == "askyesno" and "UAC" in m for k, m in mods["tkinter.messagebox"].log)
 
 
 def test_gui_update_manual_messages(gui, monkeypatch):
@@ -360,11 +585,11 @@ def test_gui_update_bar_hidden_stays_hidden_after_language_switch(gui, monkeypat
     app = gui.App(root)
     app.check_updates()
     _wait_update_event(app)
-    app.lang_box.choose("English")
+    app.change_language("en")
     assert app.update_bar.packed
     assert app.update_label.kw["text"] == "New version 9.9.0 is available (you have %s)." % gui.__version__
     app.hide_update_bar()
-    app.lang_box.choose("Bahasa Indonesia")
+    app.change_language("id")
     assert not getattr(app.update_bar, "packed", False)
 
 
@@ -406,6 +631,11 @@ def real_root():
         pass
 
 
+def ttk_rowheight(root):
+    from tkinter import ttk
+    return ttk.Style(root).configure("Treeview", "rowheight")
+
+
 def _clear(root):
     for w in root.winfo_children():
         w.destroy()
@@ -431,6 +661,18 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         proj = make_project(tmp_path)
 
         app = real_gui.App(root)
+        root.update()
+        try:
+            import sv_ttk  # noqa: F401
+        except ImportError:
+            sv_ttk = None
+        if sv_ttk is not None:                         # tema Sun Valley benar-benar terpasang
+            from tkinter import ttk
+            assert app.theme_name in ("light", "dark")
+            assert ttk.Style(root).theme_use().startswith("sun-valley")
+            assert str(app.btn_collect.cget("style")) == "Accent.TButton"
+        assert str(app.log.cget("state")) == "disabled"
+        assert int(ttk_rowheight(root)) >= app.px(24)
         app.var_aep.set(str(proj))
         app.load_project()
         _finish(app)
@@ -446,7 +688,15 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         assert len(app.foot_tree.tree.get_children()) >= 4
         app.change_language("en")                  # bangun ulang widget asli dalam bahasa lain
         root.update()
-        assert app.nb.tab(0, "text") == "1. Comps & options" and app.lang_box.get() == "English"
+        assert app.nb.tab(0, "text") == "1. Comps & options" and app.var_lang.get() == "en"
+        app.change_language("ja")                  # font Jepang + tinggi baris tabel ikut diatur ulang
+        root.update()
+        assert app.nb.tab(0, "text") == "1. コンポとオプション"
+        app.var_theme.set("dark")
+        app._on_theme_menu()                       # tema gelap dengan widget asli
+        root.update()
+        app.var_theme.set("light")
+        app._on_theme_menu()
         assert len(app.foot_tree.tree.get_children()) >= 4
         app.change_language("id")
         root.update()

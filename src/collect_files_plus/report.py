@@ -94,11 +94,16 @@ def scope_text(an: "Analysis") -> str:
     return text + (_("  (+%d precomp di dalamnya)") % extra if extra > 0 else "")
 
 
+RULE = "=" * 72
+
+
 def build_report(an: "Analysis", res: Optional["Result"] = None) -> List[str]:
+    """Laporan: ringkasan dulu (yang beres / yang perlu dicek), lalu cara pakai, lalu rincian."""
     import py_aep
 
     L: List[str] = []
     L.append(_("Collect Files Plus - laporan"))
+    L.append(RULE)
     L.append(_("Project asal : %s") % an.aep.path)
     if res is not None:
         L.append(_("Folder hasil : %s") % res.dest_root)
@@ -106,24 +111,21 @@ def build_report(an: "Analysis", res: Optional["Result"] = None) -> List[str]:
     L.append(_("Tanggal      : %s") % datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     L.append(_("Versi        : Collect Files Plus %s (py_aep %s)") % (__version__, getattr(py_aep, "__version__", "?")))
     L.append("")
+    L.extend(summary_lines(an, res))
+    L.extend(how_to_use())
+    L.append(RULE)
+    L.append(_("RINCIAN"))
+    L.append(RULE)
+    L.append("")
 
-    if res is not None:
-        if not res.saved_ok:
-            L.append(_("!!! PERHATIAN: %s") % res.validation_error)
-            L.append(_("!!! Pakai project di folder (Backup) lalu relink footage ke folder (Footage)."))
-            L.append("")
-        elif res.backup is not None:
-            L.append(_("Project hasil collect: %s (sudah di-relink ke folder (Footage)).") % res.project_out.name)
-            L.append(_("Cadangan project asli (belum diubah): (Backup)/%s") % res.backup.name)
-            L.append("")
+    if res is not None and res.errors:
         for err in res.errors:
             L.append("[ERROR] " + err)
-        if res.errors:
-            L.append("")
+        L.append("")
 
     opt = an.options
     if opt.collect_footage:
-        L.append("=== FOOTAGE ===")
+        L.append(_("=== FOOTAGE ==="))
         if res is not None and res.reduced >= 0:
             L.append(_("Reduce Project: %d item yang tidak dipakai dibuang dari project hasil.") % res.reduced)
         ok = missing = failed = 0
@@ -150,7 +152,7 @@ def build_report(an: "Analysis", res: Optional["Result"] = None) -> List[str]:
         L.append("")
 
     if opt.collect_fonts:
-        L.append("=== FONT ===")
+        L.append(_("=== FONT ==="))
         if not an.fonts:
             L.append(_("Tidak ada font yang dipakai."))
         n_ok = 0
@@ -168,7 +170,102 @@ def build_report(an: "Analysis", res: Optional["Result"] = None) -> List[str]:
         L.append("")
 
     L.extend(_effects_section(an))
-    L.extend(how_to_use())
+    return L
+
+
+def _item(L: List[str], tag: str, text: str, hint: str = "") -> None:
+    L.append("%-4s %s" % (tag, text))
+    if hint:
+        L.append("     -> " + hint)
+
+
+def summary_lines(an: "Analysis", res: Optional["Result"] = None) -> List[str]:
+    """Ringkasan di awal laporan. [OK] = beres, [!] = perlu dicek, [i] = info."""
+    done = res is not None
+    opt = an.options
+    L: List[str] = [_("=== RINGKASAN ==="), _("[OK] = beres   [!] = perlu dicek   [i] = info"), ""]
+
+    if done and not res.saved_ok:
+        _item(L, "[!]", _("!!! PERHATIAN: %s") % res.validation_error,
+              _("!!! Pakai project di folder (Backup) lalu relink footage ke folder (Footage)."))
+    elif done and res.project_out is not None and res.backup is not None:
+        _item(L, "[OK]", _("Project hasil collect: %s (sudah di-relink ke folder (Footage)).") % res.project_out.name)
+        _item(L, "[i]", _("Cadangan project asli (belum diubah): (Backup)/%s") % res.backup.name)
+    elif done and res.project_out is not None:
+        _item(L, "[OK]", _("Project: %s (salinan project asli, tidak ada yang perlu diubah).") % res.project_out.name)
+    if done and res.errors:
+        _item(L, "[!]", _("%d error saat collect, lihat [ERROR] di bagian RINCIAN.") % len(res.errors))
+
+    if opt.collect_footage:
+        ok = [fe for fe in an.footage if fe.exists and fe.copied is not False]
+        missing = sum(1 for fe in an.footage if not fe.exists)
+        failed = sum(1 for fe in an.footage if fe.exists and fe.copied is False)
+        if not an.footage:
+            _item(L, "[OK]", _("Footage: tidak ada file footage."))
+        elif ok:
+            size = fmt_bytes(sum(fe.size for fe in ok))
+            _item(L, "[OK]", (_("Footage: %d file/sequence dicopy ke (Footage), total %s.") if done else
+                              _("Footage: %d file/sequence akan dicopy, total %s.")) % (len(ok), size))
+        if missing:
+            _item(L, "[!]", _("Footage: %d file hilang (tidak ada di komputer ini).") % missing,
+                  _("Cari file aslinya, lalu relink di After Effects. Daftarnya: [HILANG] di bagian FOOTAGE."))
+        if failed:
+            _item(L, "[!]", _("Footage: %d file gagal dicopy.") % failed, _("Lihat [GAGAL] di bagian FOOTAGE."))
+        if done and res.reduced > 0:
+            _item(L, "[i]", _("Reduce Project: %d item yang tidak dipakai dibuang dari project hasil.") % res.reduced)
+
+    if opt.collect_fonts:
+        found = [f for f in an.fonts if f.face is not None and f.copied is not False]
+        failed = sum(1 for f in an.fonts if f.face is not None and f.copied is False)
+        adobe = sum(1 for f in an.fonts if f.face is None and f.status == "adobe")
+        lost = sum(1 for f in an.fonts if f.face is None and f.status != "adobe")
+        if not an.fonts:
+            _item(L, "[OK]", _("Font: tidak ada font yang dipakai."))
+        elif found:
+            _item(L, "[OK]", (_("Font: %d font dicopy ke (Fonts).") if done else _("Font: %d font akan dicopy."))
+                  % len(found))
+        if lost:
+            _item(L, "[!]", _("Font: %d font tidak ketemu di komputer ini.") % lost,
+                  _("Install font itu di komputer tujuan. Daftarnya: [TIDAK KETEMU] di bagian FONT."))
+        if adobe:
+            _item(L, "[i]", _("Font: %d Adobe Fonts tidak dicopy.") % adobe,
+                  _("Aktifkan lewat aplikasi Creative Cloud di komputer tujuan."))
+        if failed:
+            _item(L, "[!]", _("Font: %d font gagal dicopy.") % failed)
+
+    if opt.collect_plugins:
+        fx = [e for e in an.effects if e.kind == "plugin"]
+        keys = [effect_status_key(e) for e in fx]
+        chosen = [cd for cd in an.candidates if cd.selected and cd.ok is not False]
+        covered = sum(1 for k in keys if k in ("ok", "ok_check", "selected"))
+        if not fx:
+            _item(L, "[OK]", _("Plugin: tidak ada efek plugin pihak ketiga yang dipakai."))
+        elif chosen:
+            _item(L, "[OK]", (_("Plugin: %d file plugin dicopy ke (Plugins), untuk %d efek.") if done else
+                              _("Plugin: %d file plugin akan dicopy, untuk %d efek.")) % (len(chosen), covered))
+        if keys.count("not_found"):
+            _item(L, "[!]", _("Plugin: %d efek plugin tidak ketemu di komputer ini.") % keys.count("not_found"),
+                  _("Install plugin itu di komputer tujuan. Daftarnya: [TIDAK KETEMU] di bagian EFEK & PLUGIN."))
+        guesses = sum(1 for cd in an.candidates if not cd.selected and not cd.strict)
+        if guesses:
+            _item(L, "[!]", _("Plugin: %d file plugin perkiraan tidak dicopy.") % guesses,
+                  _("Cek [PERKIRAAN, TIDAK DICOPY] di bagian EFEK & PLUGIN; centang di aplikasi kalau memang benar."))
+        if keys.count("ok_check"):
+            _item(L, "[!]", _("Plugin: %d efek perlu dicek manual.") % keys.count("ok_check"),
+                  _("Lihat [OK, CEK MANUAL] di bagian EFEK & PLUGIN."))
+        unticked = sum(1 for cd in an.candidates if not cd.selected and cd.strict)
+        if unticked:
+            _item(L, "[i]", _("Plugin: %d file plugin tidak dicopy karena centangnya dihapus.") % unticked)
+        failed = sum(1 for cd in an.candidates if cd.selected and cd.ok is False)
+        if failed:
+            _item(L, "[!]", _("Plugin: %d file plugin gagal dicopy.") % failed)
+        if chosen:
+            _item(L, "[i]", _("Plugin berbayar tetap butuh installer + lisensi resmi di komputer tujuan."))
+
+    if not any(line.startswith("[!]") for line in L):
+        L.append("")
+        _item(L, "[OK]", _("Tidak ada yang perlu dicek."))
+    L.append("")
     return L
 
 

@@ -15,14 +15,15 @@ sys.path.insert(0, SRC)
 from collect_files_plus import __version__ as VERSION  # noqa: E402
 
 datas, binaries, hiddenimports = [], [], []
-for pkg in ("py_aep", "uharfbuzz"):
+for pkg in ("py_aep", "uharfbuzz", "sv_ttk"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
     hiddenimports += h
 hiddenimports += collect_submodules("fontTools.ttLib")
 hiddenimports += collect_submodules("collect_files_plus")
-datas += [(os.path.join(SRC, "collect_files_plus", "assets"), "collect_files_plus/assets")]
+datas += [(os.path.join(SRC, "collect_files_plus", "assets"), "collect_files_plus/assets"),
+          (os.path.join(SRC, "collect_files_plus", "docs"), "collect_files_plus/docs")]
 
 a = Analysis(  # noqa: F821
     [os.path.join(HERE, "launcher.py")],
