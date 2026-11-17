@@ -1,11 +1,12 @@
 name: Build & Release
 
-# Tag vX.Y.Z -> build Windows + macOS, uji hasil build, lalu terbitkan GitHub Release.
+# Rilis diterbitkan di halaman GitHub (tag mis. v1.0.1, dari branch main) -> build Windows + macOS,
+# uji hasil build, lalu file zip ditempel ke rilis itu (update otomatis di aplikasi mengambil dari sini).
 # Jalankan manual (workflow_dispatch) -> build + uji saja, hasilnya ada di Artifacts.
 
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -37,8 +38,17 @@ jobs:
         run: |
           v=$(python -c "import collect_files_plus as m; print(m.__version__)")
           echo "version=$v" >> "$GITHUB_OUTPUT"
-          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$v" ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME tidak sama dengan __version__ ($v)"; exit 1
+          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+            python - "$GITHUB_REF_NAME" "$v" <<'PY'
+          import sys
+          from collect_files_plus.updater import parse_version
+          tag, ver = parse_version(sys.argv[1]), parse_version(sys.argv[2])
+          n = max(len(tag), len(ver))
+          if not tag or tag + (0,) * (n - len(tag)) != ver + (0,) * (n - len(ver)):
+              print("::error::Tag rilis %s tidak sama dengan versi aplikasi %s. Buat rilis dengan tag v%s."
+                    % (sys.argv[1], sys.argv[2], sys.argv[2]))
+              sys.exit(1)
+          PY
           fi
       - name: Build (PyInstaller)
         run: python -m PyInstaller --noconfirm --clean packaging/CollectFilesPlus.spec
@@ -131,7 +141,7 @@ jobs:
   release:
     name: terbitkan release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
