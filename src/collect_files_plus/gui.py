@@ -102,12 +102,15 @@ def docs_dir() -> Path:
 
 
 def show_tip(master, text: str, x: int, y: int, wrap: int = 900):
-    """Jendela tooltip kecil di posisi layar (x, y), digeser supaya tetap di dalam jendela aplikasi."""
+    """Jendela tooltip kecil di dekat (x, y) layar, digeser supaya tetap di dalam jendela aplikasi.
+    Ukurannya dihitung dulu selagi tersembunyi: posisi hanya diatur sekali sebelum tampil (Windows
+    mengabaikan perubahan posisi kedua sebelum jendela muncul)."""
     win = tk.Toplevel(master)
+    win.withdraw()
     win.wm_overrideredirect(True)
-    win.wm_geometry("+%d+%d" % (x, y))
     ttk.Label(win, text=text, padding=(8, 4), relief="solid", borderwidth=1, wraplength=wrap,
               justify="left").pack()
+    nx, ny = x, y
     try:
         win.update_idletasks()
         w, h = int(win.winfo_reqwidth()), int(win.winfo_reqheight())
@@ -116,13 +119,13 @@ def show_tip(master, text: str, x: int, y: int, wrap: int = 900):
         right, lower = left + int(top.winfo_width()), upper + int(top.winfo_height())
         nx = max(left + 4, min(x, right - w - 4))
         ny = y if y + h <= lower - 4 else max(upper + 4, y - h - 28)     # tidak muat di bawah: di atas
-        if (nx, ny) != (x, y):
-            win.wm_geometry("+%d+%d" % (nx, ny))
         if TIP_TRACE is not None:
             TIP_TRACE.append({"x": x, "y": y, "w": w, "h": h, "left": left, "right": right, "nx": nx, "ny": ny})
     except Exception as exc:  # noqa: BLE001 - posisi awal tetap dipakai
         if TIP_TRACE is not None:
             TIP_TRACE.append({"error": repr(exc)})
+    win.wm_geometry("+%d+%d" % (nx, ny))
+    win.deiconify()
     return win
 
 
