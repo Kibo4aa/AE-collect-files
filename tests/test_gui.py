@@ -846,6 +846,18 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
 
         app = real_gui.App(root)
         root.update()
+        # tampilan ringkas: petunjuk di daftar kosong, tombol bawah hanya yang berguna
+        assert app.comp_tree.empty_label.winfo_manager() == "place"
+        assert app.btn_cancel.winfo_manager() == "" and app.btn_open.winfo_manager() == ""
+        def walk(w):
+            yield w
+            for c in w.winfo_children():
+                yield from walk(c)
+        tip = next(w.tooltip for w in walk(root) if hasattr(w, "tooltip"))      # opsi pertama: Footage
+        tip._show()
+        root.update()
+        assert tip.win is not None and tip.win.winfo_exists() and "relink" in tip.text
+        tip._hide()
         try:
             import sv_ttk  # noqa: F401
         except ImportError:
@@ -862,6 +874,7 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         _finish(app)
         root.update()
         assert len(app.comp_tree.tree.get_children()) == 3
+        assert app.comp_tree.empty_label.winfo_manager() == ""      # petunjuk hilang
         first = app.comp_tree.tree.get_children()[0]
         assert app.comp_tree.tree.item(first, "text").startswith(real_gui.CHECK_ON)
         app.var_dest.set(str(tmp_path / "out"))
@@ -872,10 +885,10 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         assert len(app.foot_tree.tree.get_children()) >= 4
         app.change_language("en")                  # bangun ulang widget asli dalam bahasa lain
         root.update()
-        assert app.nb.tab(0, "text") == "1. Comps & options" and app.var_lang.get() == "en"
+        assert app.nb.tab(0, "text") == "Comps & options" and app.var_lang.get() == "en"
         app.change_language("ja")                  # font Jepang + tinggi baris tabel ikut diatur ulang
         root.update()
-        assert app.nb.tab(0, "text") == "1. コンポとオプション"
+        assert app.nb.tab(0, "text") == "コンポとオプション"
         app.var_theme.set("dark")
         app._on_theme_menu()                       # tema gelap dengan widget asli
         root.update()
@@ -884,7 +897,7 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         assert len(app.foot_tree.tree.get_children()) >= 4
         app.change_language("id")
         root.update()
-        assert app.nb.tab(0, "text") == "1. Comp & opsi"
+        assert app.nb.tab(0, "text") == "Comp & opsi"
         from collect_files_plus import updater
         app.update_info = updater.UpdateInfo("9.9.0", "v9.9.0", "p", asset_url="u")
         app._show_update_bar()                     # bar update dengan widget asli
@@ -898,6 +911,7 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         root.update()
         assert app.result is not None and app.result.saved_ok, shown
         assert not [s for s in shown if s[0] == "showerror"], shown
+        assert app.btn_open.winfo_manager() == "pack" and app.btn_cancel.winfo_manager() == ""
     finally:
         _clear(root)
 
@@ -1047,7 +1061,7 @@ def test_real_windows_drag_and_drop(real_root, tmp_path, monkeypatch):
             root.after(20 * i + 10, lambda: _post_drop(hwnd, [str(other)]))
         root.after(150, lambda: app.change_language("en"))
         run_mainloop(1000)
-        assert app.nb.tab(0, "text") == "1. Comps & options"
+        assert app.nb.tab(0, "text") == "Comps & options"
         assert len(app.batch_paths) == 2
         app.change_language("id")
     finally:
