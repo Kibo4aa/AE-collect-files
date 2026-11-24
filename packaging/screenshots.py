@@ -60,7 +60,6 @@ def main() -> int:
     fx = make_fx_project(tmp)
     other = make_project(tmp / "Edit AMV")
     gui.settings_path = lambda: tmp / "settings.json"
-    gui.TIP_TRACE = []
     gui.open_folder = lambda p: None
     for kind in ("showerror", "showinfo", "showwarning", "askyesno"):
         setattr(messagebox, kind, lambda *a, **kw: False)
@@ -189,8 +188,6 @@ def main() -> int:
         tip_win.win.attributes("-topmost", True)
         tip_win.win.lift()
         settle(0.4)
-        print("TIP", name, gui.TIP_TRACE[-1:] if gui.TIP_TRACE else None, tip_win.win.winfo_geometry(),
-              "root", root.winfo_rootx(), root.winfo_width())
         ImageGrab.grab(bbox=window_rect(root), all_screens=True).save(out / (prefix + name + ".png"))
         print("saved", name)
         tip_win._hide()
