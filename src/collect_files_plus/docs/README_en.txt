@@ -23,12 +23,16 @@ QUICK START
 MANY PROJECTS AT ONCE (BATCH)
 -----------------------------
 - Drag several .aep files, or a folder, onto the window. They are added to
-  the "Batch (many projects)" tab. Click "Collect all projects".
+  the "Batch (many projects)" tab.
+- While the Batch tab is open, the buttons at the bottom work on the whole
+  list: "Analyze all" (F5) checks every project without copying anything,
+  "Collect all" (Ctrl+Enter) collects them.
 - Every project goes into the same destination folder, each one into its
   own <name>_Collected folder. One failing project does not stop the others.
 - CollectFilesPlus_batch_<date>.txt in the destination folder lists what
   needs checking first, then every project.
-- Right-click a project in the list to open its output folder or report.
+- Right-click a project in the list to see its analysis in detail
+  (plugins, fonts, footage), or to open its output folder or report.
 - From Windows Explorer: turn on Settings > Right-click "Send to" menu in
   Explorer. Then select .aep files > right-click > Send to >
   Collect Files Plus (Windows 11: click "Show more options" first).

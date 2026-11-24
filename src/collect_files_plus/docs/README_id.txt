@@ -23,12 +23,16 @@ MULAI CEPAT
 BANYAK PROJECT SEKALIGUS (BATCH)
 --------------------------------
 - Drag beberapa file .aep, atau satu folder, ke jendela aplikasi. Semuanya
-  masuk ke tab "Batch (banyak project)". Klik "Collect semua project".
+  masuk ke tab "Batch (banyak project)".
+- Selama tab Batch terbuka, tombol di bawah berlaku untuk seluruh daftar:
+  "Analisa semua" (F5) mengecek semua project tanpa menyalin apa pun,
+  "Collect semua" (Ctrl+Enter) meng-collect semuanya.
 - Semua project masuk ke folder tujuan yang sama, masing-masing ke folder
   <nama>_Collected sendiri. Satu project gagal tidak menghentikan yang lain.
 - File CollectFilesPlus_batch_<tanggal>.txt di folder tujuan berisi yang
   perlu dicek dulu, lalu daftar semua project.
-- Klik kanan project di daftar untuk membuka folder hasil atau laporannya.
+- Klik kanan project di daftar untuk melihat detail analisanya (plugin,
+  font, footage), atau membuka folder hasil dan laporannya.
 - Dari Windows Explorer: nyalakan Pengaturan > Menu klik kanan "Send to"
   di Explorer. Lalu pilih file .aep > klik kanan > Send to >
   Collect Files Plus (Windows 11: klik "Show more options" dulu).

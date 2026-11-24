@@ -225,9 +225,14 @@ def build():
             self.tabs.append((child, text))
 
         def select(self, idx=None):
-            """Seperti Tk: yang dikembalikan selalu widget tab (bukan nomor)."""
+            """Seperti Tk: yang dikembalikan selalu widget tab (bukan nomor). Ganti tab memicu
+            <<NotebookTabChanged>>."""
             if idx is not None:
+                before = self.select() if self.tabs else None
                 self.selected = self.tabs[idx][0] if isinstance(idx, int) else idx
+                if self.select() is not before:
+                    for fn in list(getattr(self, "bindings", {}).get("<<NotebookTabChanged>>", [])):
+                        fn(None)
             return self.selected if not isinstance(self.selected, int) else self.tabs[self.selected][0]
 
         def index(self, tab):

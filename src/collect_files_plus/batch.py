@@ -1,8 +1,9 @@
-"""Collect banyak project .aep sekaligus ke satu folder tujuan.
+"""Analisa atau collect banyak project .aep sekaligus.
 
-Setiap project tetap mendapat folder hasil sendiri (``<nama>_Collected``) di dalam
-folder tujuan, jadi relink footage tiap project tidak saling bentrok. Satu project
-yang gagal tidak menghentikan project lain.
+Collect: setiap project tetap mendapat folder hasil sendiri (``<nama>_Collected``) di
+dalam folder tujuan, jadi relink footage tiap project tidak saling bentrok. Analisa:
+setiap project hanya dibaca (tidak ada yang dicopy), hasilnya ringkasan per project.
+Satu project yang gagal tidak menghentikan project lain.
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ NOTE_TEXT = {
     "adobe": N_("%d Adobe Fonts (aktifkan di CC)"),
     "fx": N_("%d efek plugin tidak ketemu"),
     "guess": N_("%d plugin perkiraan tidak dicopy"),
+    "guess_an": N_("%d plugin perkiraan perlu dicek"),
     "errors": N_("%d error saat copy"),
 }
 
@@ -144,6 +146,7 @@ class BatchItem:
     result: Optional[Result] = None
     error: str = ""
     counts: Dict[str, int] = field(default_factory=dict)
+    info: Dict[str, int] = field(default_factory=dict)   # hasil analisa: jumlah footage/font/plugin + ukuran
 
     @property
     def scope(self) -> str:
@@ -164,7 +167,14 @@ class BatchItem:
 
     @property
     def result_name(self) -> str:
-        return self.result.dest_root.name if self.result is not None else ""
+        if self.result is not None:
+            return self.result.dest_root.name
+        if self.info:
+            from .report import fmt_bytes
+            return _("%d footage, %d font, %d plugin (%s)") % (
+                self.info.get("footage", 0), self.info.get("fonts", 0), self.info.get("plugins", 0),
+                fmt_bytes(self.info.get("bytes", 0)))
+        return ""
 
 
 @dataclass
@@ -173,6 +183,7 @@ class BatchRun:
     dest: Path
     scope: str
     summary: Optional[Path] = None
+    kind: str = "collect"               # collect / analyze
 
     def count(self, *statuses: str) -> int:
         return sum(1 for it in self.items if it.status in statuses)
@@ -192,7 +203,8 @@ class BatchRun:
         return _("%s (dari %d project)") % (", ".join(parts), len(self.items))
 
 
-def note_counts(an: Analysis, res: Result) -> Dict[str, int]:
+def note_counts(an: Analysis, res: Optional[Result] = None) -> Dict[str, int]:
+    """Hal yang perlu dicek. Tanpa `res` (hanya analisa): plugin perkiraan = perlu dicek."""
     counts = {
         "missing": sum(1 for fe in an.footage if not fe.exists),
         "fonts": sum(1 for f in an.fonts if f.status == "tidak-ketemu"),
@@ -200,9 +212,23 @@ def note_counts(an: Analysis, res: Result) -> Dict[str, int]:
     }
     if an.options.collect_plugins:
         counts["fx"] = sum(1 for e in an.plugin_effects if e.candidate is None)
-        counts["guess"] = sum(1 for cd in an.candidates if not cd.selected)
-    counts["errors"] = len(res.errors)
+        counts["guess" if res is not None else "guess_an"] = sum(1 for cd in an.candidates if not cd.selected)
+    if res is not None:
+        counts["errors"] = len(res.errors)
     return {k: n for k, n in counts.items() if n}
+
+
+def analysis_info(an: Analysis) -> Dict[str, int]:
+    """Jumlah footage, font, file plugin yang akan dicopy, dan perkiraan total ukurannya."""
+    plugins = [cd for cd in an.candidates if cd.selected]
+    size = sum(fe.size for fe in an.footage if fe.exists) + sum(cd.size for cd in plugins)
+    for f in an.fonts:
+        if f.face is not None:
+            try:
+                size += f.face.path.stat().st_size
+            except OSError:
+                pass
+    return {"footage": len(an.footage), "fonts": len(an.fonts), "plugins": len(plugins), "bytes": size}
 
 
 def _short_error(exc: BaseException) -> str:
@@ -221,15 +247,13 @@ def prepare_env(env: Optional[Environment] = None) -> Environment:
     return env
 
 
-def collect_many(paths: Sequence, options: Options, scope: str = "auto", comp_names: Sequence[str] = (),
-                 env: Optional[Environment] = None, progress: Optional[ProgressFn] = None,
-                 cancel: Optional[threading.Event] = None,
-                 on_item: Optional[Callable[[int, BatchItem], None]] = None,
-                 include_guesses: bool = False, write_summary: bool = True) -> BatchRun:
-    """Collect setiap project ke ``options.dest_dir``. ``options.comp_ids`` diabaikan:
-    comp tiap project dipilih dengan ``scope`` (lihat resolve_scope)."""
+def _run_many(paths: Sequence, options: Options, scope: str, comp_names: Sequence[str],
+              env: Optional[Environment], progress: Optional[ProgressFn], cancel: Optional[threading.Event],
+              on_item: Optional[Callable[[int, BatchItem], None]], include_guesses: bool,
+              do_collect: bool) -> BatchRun:
     env = prepare_env(env)
-    run = BatchRun([BatchItem(Path(p)) for p in paths], Path(options.dest_dir), scope)
+    run = BatchRun([BatchItem(Path(p)) for p in paths], Path(options.dest_dir), scope,
+                   kind="collect" if do_collect else "analyze")
     total = len(run.items)
 
     def emit(i: int) -> None:
@@ -253,15 +277,20 @@ def collect_many(paths: Sequence, options: Options, scope: str = "auto", comp_na
             if include_guesses:
                 for cd in an.candidates:
                     cd.selected = True
-            res = collect(an, progress=sub, cancel=cancel)
-            it.result = res
-            it.counts = note_counts(an, res)
-            if not res.saved_ok:
-                it.status = "gagal"
-                it.error = (_("project hasil gagal dicek (%s); file sudah dicopy, pakai .aep di (Backup)")
-                            % (res.validation_error or _("tidak diketahui")))
-            else:
+            if not do_collect:
+                it.counts = note_counts(an)
+                it.info = analysis_info(an)
                 it.status = "catatan" if it.counts else "ok"
+            else:
+                res = collect(an, progress=sub, cancel=cancel)
+                it.result = res
+                it.counts = note_counts(an, res)
+                if not res.saved_ok:
+                    it.status = "gagal"
+                    it.error = (_("project hasil gagal dicek (%s); file sudah dicopy, pakai .aep di (Backup)")
+                                % (res.validation_error or _("tidak diketahui")))
+                else:
+                    it.status = "catatan" if it.counts else "ok"
         except Cancelled:
             it.status = "dibatalkan"
             emit(i)
@@ -275,12 +304,33 @@ def collect_many(paths: Sequence, options: Options, scope: str = "auto", comp_na
         if it.status == "menunggu":
             it.status = "dibatalkan"
             emit(i)
+    return run
+
+
+def collect_many(paths: Sequence, options: Options, scope: str = "auto", comp_names: Sequence[str] = (),
+                 env: Optional[Environment] = None, progress: Optional[ProgressFn] = None,
+                 cancel: Optional[threading.Event] = None,
+                 on_item: Optional[Callable[[int, BatchItem], None]] = None,
+                 include_guesses: bool = False, write_summary: bool = True) -> BatchRun:
+    """Collect setiap project ke ``options.dest_dir``. ``options.comp_ids`` diabaikan:
+    comp tiap project dipilih dengan ``scope`` (lihat resolve_scope)."""
+    run = _run_many(paths, options, scope, comp_names, env, progress, cancel, on_item, include_guesses, True)
     if write_summary and any(it.status != "dibatalkan" for it in run.items):
         try:
             run.summary = write_batch_summary(run)
         except OSError:
             run.summary = None
     return run
+
+
+def analyze_many(paths: Sequence, options: Options, scope: str = "auto", comp_names: Sequence[str] = (),
+                 env: Optional[Environment] = None, progress: Optional[ProgressFn] = None,
+                 cancel: Optional[threading.Event] = None,
+                 on_item: Optional[Callable[[int, BatchItem], None]] = None,
+                 include_guesses: bool = False) -> BatchRun:
+    """Analisa setiap project tanpa menyalin apa pun: yang perlu dicek (footage hilang, font,
+    plugin yang tidak ketemu) dan perkiraan ukuran hasil collect-nya."""
+    return _run_many(paths, options, scope, comp_names, env, progress, cancel, on_item, include_guesses, False)
 
 
 def write_batch_summary(run: BatchRun) -> Path:

@@ -223,7 +223,10 @@ def main() -> int:
     app.var_theme.set("light")
     app.change_theme()
     app.add_batch_paths([str(fx), str(other)])
-    app.start_batch()
+    app.start_analyze()                    # tab Batch aktif: tombol bawah = "Analyze all"
+    settle()
+    shot("light-en-batch-analyze")
+    app.start_collect()                    # tab Batch aktif: tombol bawah = "Collect all"
     settle()
     shot("light-en-batch")
     app.var_theme.set("dark")

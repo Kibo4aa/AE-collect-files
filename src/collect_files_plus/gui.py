@@ -18,7 +18,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from . import __version__, dialogs, dnd, menus, sendto, theme, updater
-from .i18n import LANGS, _, get_language, set_language, system_language
+from .i18n import LANGS, N_, _, get_language, set_language, system_language
 
 APP_TITLE = "Collect Files Plus"
 GITHUB_URL = "https://github.com/Kibo4aa/AE-collect-files"
@@ -278,6 +278,8 @@ class InfoTree(ttk.Frame):
 
 BATCH_TAG = {"ok": "ok", "catatan": "warn", "gagal": "error", "jalan": "run", "dibatalkan": "muted",
              "menunggu": "muted"}
+SINGLE_HINT = N_("Pilih file .aep untuk mulai.")
+BATCH_HINT = N_("Tambahkan project ke daftar, lalu klik Analisa semua atau Collect semua.")
 
 
 class App:
@@ -326,7 +328,7 @@ class App:
         s = self.settings
         self.var_aep = tk.StringVar(value=initial or "")
         self.var_dest = tk.StringVar(value=s.get("dest", ""))
-        self.var_status = tk.StringVar(value=_("Pilih file .aep untuk mulai."))
+        self.var_status = tk.StringVar(value=_(SINGLE_HINT))
         self.opt_footage = tk.BooleanVar(value=s.get("footage", True))
         self.opt_reduce = tk.BooleanVar(value=s.get("reduce", False))
         self.opt_fonts = tk.BooleanVar(value=s.get("fonts", True))
@@ -545,14 +547,12 @@ class App:
         tabb = ttk.Frame(self.nb, padding=6)
         add_tab(tabb, _("Batch (banyak project)"))
         self.batch_tab = tabb
-        self._autowrap(ttk.Label(tabb, text=_("Collect banyak project sekaligus. Semua hasil masuk ke \"Folder tujuan\" "
-                                              "di atas, tiap project ke folder <nama>_Collected sendiri.\nOpsi yang "
-                                              "dicentang di tab \"1. Comp & opsi\" dipakai untuk semua project. File "
-                                              ".aep atau folder juga bisa di-drag ke jendela ini."), justify="left"))
-        rc = ttk.Frame(tabb)
-        rc.pack(side="bottom", fill="x", pady=(8, 0))
-        self.btn_batch = ttk.Button(rc, text=_("Collect semua project"), command=self.start_batch, style=self.accent)
-        self.btn_batch.pack(side="left")
+        self._autowrap(ttk.Label(tabb, text=_("Analisa atau collect banyak project sekaligus dengan tombol di bawah. "
+                                              "Hasil collect masuk ke \"Folder tujuan\" di atas, tiap project ke folder "
+                                              "<nama>_Collected sendiri.\nOpsi yang dicentang di tab \"1. Comp & opsi\" "
+                                              "dipakai untuk semua project. Klik kanan sebuah project untuk melihat "
+                                              "detail analisanya. File .aep atau folder juga bisa di-drag ke jendela ini."),
+                                 justify="left"))
         rs = ttk.Frame(tabb)
         rs.pack(side="bottom", fill="x", pady=(8, 0))
         rb = ttk.Frame(tabb)
@@ -595,6 +595,22 @@ class App:
         self._bind_tree_actions()
         self._update_comp_hint()
         self._recolor()
+        # tombol Analisa/Collect di bawah: di tab Batch berlaku untuk semua project di daftar
+        self.nb.bind("<<NotebookTabChanged>>", self._sync_action_buttons, add="+")
+        self._sync_action_buttons()
+
+    def _sync_action_buttons(self, _event=None) -> None:
+        """Label tombol bawah mengikuti tab: "Analisa/Collect" (satu project) atau
+        "Analisa semua/Collect semua" (daftar Batch)."""
+        batch = self._on_batch_tab()
+        try:
+            self.btn_analyze.configure(text=_("Analisa semua") if batch else _("Analisa"))
+            self.btn_collect.configure(text=_("Collect semua") if batch else _("Collect"))
+        except Exception:  # noqa: BLE001 - jendela sedang dibangun ulang
+            return
+        hints = (_(SINGLE_HINT), _(BATCH_HINT))
+        if not self._busy_now(quiet=True) and self.var_status.get() in hints:
+            self.var_status.set(hints[1] if batch else hints[0])
 
     @staticmethod
     def _autowrap(label, pack: bool = True) -> None:
@@ -728,7 +744,7 @@ class App:
         """Klik dua kali / klik kanan pada baris tabel."""
         for name, info in (("plugin", self.plugin_tree), ("font", self.font_tree), ("foot", self.foot_tree)):
             info.tree.bind("<Double-1>", lambda e, n=name, t=info.tree: self._reveal_row(n, t.identify_row(e.y)))
-        self.batch_tree.tree.bind("<Double-1>", lambda e: self.batch_open(self.batch_tree.tree.identify_row(e.y)))
+        self.batch_tree.tree.bind("<Double-1>", lambda e: self._batch_double(self.batch_tree.tree.identify_row(e.y)))
         self.batch_tree.tree.bind("<Button-2>" if sys.platform == "darwin" else "<Button-3>", self._batch_menu)
 
     def _message(self, kind: str, text: str) -> bool:
@@ -845,12 +861,18 @@ class App:
         return True
 
     def start_analyze(self) -> None:
+        if self._on_batch_tab():
+            self.start_batch_analyze()
+            return
         if self._busy_now() or not self._validate_inputs(False):
             return
         opt = self.current_options()
         self._run("analyze", self._job_analyze, opt)
 
     def start_collect(self) -> None:
+        if self._on_batch_tab():
+            self.start_batch()
+            return
         if self._busy_now() or not self._validate_inputs(True):
             return
         opt = self.current_options()
@@ -952,6 +974,7 @@ class App:
         if log_text:
             self._log(log_text, end="")
         self.nb.select(tab)
+        self._sync_action_buttons()
         if self.update_info is not None and not self.update_dismissed:
             self._show_update_bar()
 
@@ -1064,9 +1087,10 @@ class App:
         except Exception:  # noqa: BLE001 - tanpa drag & drop aplikasi tetap jalan
             return False
 
-    def _busy_now(self) -> bool:
+    def _busy_now(self, quiet: bool = False) -> bool:
         if self.worker is not None and self.worker.is_alive():
-            self.var_status.set(_("Tunggu proses yang sedang berjalan selesai dulu."))
+            if not quiet:
+                self.var_status.set(_("Tunggu proses yang sedang berjalan selesai dulu."))
             return True
         return False
 
@@ -1172,6 +1196,25 @@ class App:
         else:
             open_folder(it.result.dest_root)
 
+    def _batch_double(self, iid: str) -> None:
+        """Klik dua kali: sudah di-collect -> buka folder hasil, belum -> lihat detail analisanya."""
+        it = self._batch_item(iid)
+        if it is not None and it.result is not None:
+            self.batch_open(iid)
+        elif iid:
+            self.batch_show(iid)
+
+    def batch_show(self, iid: str) -> None:
+        """Buka project dari daftar batch di tab 1-5 dan analisa (comp dipilih sama seperti batch)."""
+        try:
+            path = self.batch_paths[int(iid)]
+        except (ValueError, IndexError):
+            return
+        if self._busy_now():
+            return
+        self.analysis = None
+        self._run("open-analyze", self._job_open_analyze, (path, self._base_options(), self.var_batch_scope.get()))
+
     def _batch_menu(self, event) -> None:
         iid = self.batch_tree.tree.identify_row(event.y)
         if not iid:
@@ -1187,6 +1230,9 @@ class App:
         if self.theme_name or not self.native_menus:
             theme.style_menu(menu, self.theme_name == "dark")
         menu.delete(0, "end")
+        menu.add_command(label=_("Lihat detail analisa"), command=lambda: self.batch_show(iid),
+                         state="disabled" if self._busy_now(quiet=True) else "normal")
+        menu.add_separator()
         menu.add_command(label=_("Buka folder hasil"), command=lambda: self.batch_open(iid), state=state)
         menu.add_command(label=_("Buka laporan"), command=lambda: self.batch_open(iid, report=True), state=state)
         menu.add_separator()
@@ -1217,11 +1263,54 @@ class App:
     def _job_batch(self, arg):
         from .batch import collect_many
         paths, opt, scope = arg
+        return collect_many(paths, opt, scope, progress=self._progress, cancel=self.cancel,
+                            on_item=self._batch_item_event)
 
-        def on_item(i, it) -> None:
-            self.events.put(("item", it.status, (i, self._batch_values(it.path, it.scope, it.status_text,
-                                                                          it.result_name))))
-        return collect_many(paths, opt, scope, progress=self._progress, cancel=self.cancel, on_item=on_item)
+    def _batch_item_event(self, i: int, it) -> None:
+        self.events.put(("item", it.status, (i, self._batch_values(it.path, it.scope, it.status_text,
+                                                                      it.result_name))))
+
+    def start_batch_analyze(self) -> None:
+        """Analisa semua project di daftar batch (tidak ada yang dicopy)."""
+        if self._busy_now():
+            return
+        if not self.batch_paths:
+            self._message("showwarning", _("Daftar batch masih kosong. Klik \"Tambah file .aep...\" atau "
+                                                "drag file .aep ke jendela ini."))
+            return
+        opt = self._base_options()
+        self._save_settings(None)
+        paths = list(self.batch_paths)
+        for i, p in enumerate(paths):
+            self.batch_tree.set_row(str(i), self._batch_values(p), tags=("muted",))
+        self.batch_total = len(paths)
+        self._run("batch-analyze", self._job_batch_analyze, (paths, opt, self.var_batch_scope.get()),
+                  determinate=True)
+
+    def _job_batch_analyze(self, arg):
+        from .batch import analyze_many
+        paths, opt, scope = arg
+        return analyze_many(paths, opt, scope, progress=self._progress, cancel=self.cancel,
+                            on_item=self._batch_item_event)
+
+    def _job_open_analyze(self, arg):
+        import dataclasses
+
+        from .batch import scope_parts
+        from .collector import analyze
+        from .project import AepProject
+        path, base, scope = arg
+        self._progress(_("Membaca %s ...") % Path(path).name)
+        aep = AepProject(path)
+        try:
+            ids, _kind, _names, _n = scope_parts(aep, scope)
+        except ValueError:
+            ids = None
+        if ids is not None and set(ids) == {c.id for c in aep.comps}:
+            ids = None
+        opt = dataclasses.replace(base, comp_ids=ids)
+        an = analyze(aep, opt, progress=self._progress, cancel=self.cancel)
+        return path, aep, an, self.options_key(opt)
 
     def _on_sendto_menu(self) -> None:
         want = self.var_sendto.get()
@@ -1329,7 +1418,7 @@ class App:
                     self._busy(False)
                     self._log("ERROR: " + payload)
                     first = payload.split("\n", 1)[0]
-                    if kind == "load":
+                    if kind in ("load", "open-analyze"):
                         self._message("showerror", _("File .aep tidak bisa dibaca:\n%s\n\n"
                                                "Kalau project dibuat dengan versi After Effects yang sangat baru, "
                                                "coba pakai script JSX (folder jsx) dari dalam After Effects.") % first)
@@ -1350,7 +1439,6 @@ class App:
         state = "disabled" if busy else "normal"
         self.btn_analyze.configure(state=state)
         self.btn_collect.configure(state=state)
-        self.btn_batch.configure(state=state)
         self.btn_cancel.configure(state="normal" if busy else "disabled")
         if busy:
             self.progress.pack(side="right", padx=10, after=self.btn_open)
@@ -1393,6 +1481,29 @@ class App:
             self._fill_analysis()
             self.var_status.set(_("Analisa selesai. Cek tab Plugin/Font/Footage, lalu klik Collect."))
             self.nb.select(1 if self.analysis.candidates else 3)
+        elif kind == "open-analyze":
+            path, aep, an, key = payload
+            self.var_aep.set(str(path))
+            self.settings["aep_dir"] = str(Path(path).parent)
+            self.aep, self.aep_stale = aep, False
+            self._fill_comps(log=False)
+            ids = an.options.comp_ids
+            self._render_comps({str(cid): ids is None or cid in ids for cid, *_rest in self.comp_rows})
+            self._update_comp_hint()
+            self.analysis, self.analysis_key = an, key
+            self._log(_("Membuka %s") % path)
+            self._fill_analysis()
+            self.var_status.set(_("Analisa selesai. Cek tab Plugin/Font/Footage, lalu klik Collect."))
+            self.nb.select(1 if an.candidates else 3)
+        elif kind == "batch-analyze":
+            run = payload
+            self.batch_run = run
+            self._log(_("Analisa batch selesai: %s") % run.headline())
+            for it in run.items:
+                if it.status in ("catatan", "gagal"):
+                    self._log("  %s: %s" % (it.path, it.status_text))
+            self.var_status.set(_("Analisa selesai: %s. Klik kanan sebuah project untuk melihat detailnya.")
+                                % run.headline())
         elif kind == "batch":
             run = payload
             self.batch_run = run

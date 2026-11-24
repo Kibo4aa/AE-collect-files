@@ -1,5 +1,12 @@
 Collect Files for After Effects **without opening After Effects**: the footage, fonts and plugin files a project actually uses are gathered into one folder.
 
+### What's new in 1.2.0
+
+- **Batch tab: one set of buttons.** While the Batch tab is open, the buttons at the bottom become **Analyze all** and **Collect all** and work on the whole list. The extra "Collect all projects" button inside the tab is gone, so there is only one Collect button.
+- **Analyze all (new):** checks every project in the list without copying anything. Each row shows what needs attention (missing footage, fonts or plugins that were not found) and what a collect would copy: footage, fonts, plugin files and the total size.
+- **One project in detail:** right-click a project in the Batch list and choose **Show analysis details**, or double-click a project that has not been collected yet. It opens in the Plugins, Fonts and Footage tabs, ready to collect on its own.
+- F5 and Ctrl+Enter follow the same rule: on the Batch tab they run Analyze all and Collect all.
+
 ### What's new in 1.1.1
 
 - **Dark mode fixed:** the menu bar, the drop-down menus and the message boxes now follow the dark theme. No more white menu bar, white menu borders or white dialogs.

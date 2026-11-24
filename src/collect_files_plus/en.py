@@ -18,6 +18,7 @@ EN = {
     "%d Adobe Fonts (aktifkan di CC)": "%d Adobe Fonts (activate in CC)",
     "%d efek plugin tidak ketemu": "%d plugin effect(s) not found",
     "%d plugin perkiraan tidak dicopy": "%d guessed plugin(s) not copied",
+    "%d plugin perkiraan perlu dicek": "%d guessed plugin(s) to check",
     "%d error saat copy": "%d copy error(s)",
     "[CATATAN]": "[NOTES]",
     "[GAGAL]": "[FAILED]",
@@ -166,7 +167,15 @@ EN = {
     "Lokasi": "Location",
     "Comp": "Comp",
     "Hasil": "Result",
-    "Collect semua project": "Collect all projects",
+    "Analisa semua": "Analyze all",
+    "Collect semua": "Collect all",
+    "Tambahkan project ke daftar, lalu klik Analisa semua atau Collect semua.":
+        "Add projects to the list, then click Analyze all or Collect all.",
+    "Lihat detail analisa": "Show analysis details",
+    "Analisa batch selesai: %s": "Batch analysis finished: %s",
+    "Analisa selesai: %s. Klik kanan sebuah project untuk melihat detailnya.":
+        "Analysis finished: %s. Right-click a project to see the details.",
+    "%d footage, %d font, %d plugin (%s)": "%d footage, %d font(s), %d plugin(s) (%s)",
     "Analisa": "Analyze",
     "Batal": "Cancel",
     "Buka folder hasil": "Open output folder",
@@ -223,11 +232,13 @@ EN = {
         'Plugin files that will be copied. Click a checkbox to choose. "(guess)" = not ticked automatically.',
     "Centang semua": "Tick all",
     "Hapus semua centang": "Untick all",
-    'Collect banyak project sekaligus. Semua hasil masuk ke "Folder tujuan" di atas, tiap project ke folder '
-    '<nama>_Collected sendiri.\nOpsi yang dicentang di tab "1. Comp & opsi" dipakai untuk semua project. File .aep '
-    'atau folder juga bisa di-drag ke jendela ini.':
-        'Collect many projects at once. Everything goes into the "Destination folder" above, each project into its '
-        'own <name>_Collected folder.\nThe options ticked in the "1. Comps & options" tab apply to every project. '
+    'Analisa atau collect banyak project sekaligus dengan tombol di bawah. Hasil collect masuk ke "Folder tujuan" '
+    'di atas, tiap project ke folder <nama>_Collected sendiri.\nOpsi yang dicentang di tab "1. Comp & opsi" '
+    'dipakai untuk semua project. Klik kanan sebuah project untuk melihat detail analisanya. File .aep atau folder '
+    'juga bisa di-drag ke jendela ini.':
+        'Analyze or collect many projects at once with the buttons below. Collected projects go into the '
+        '"Destination folder" above, each into its own <name>_Collected folder.\nThe options ticked in the '
+        '"1. Comps & options" tab apply to every project. Right-click a project to see its analysis in detail. '
         'You can also drag .aep files or folders onto this window.',
     "Tambah file .aep...": "Add .aep files...",
     "Tambah folder...": "Add folder...",

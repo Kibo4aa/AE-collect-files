@@ -23,6 +23,7 @@ JA = {
     "%d Adobe Fonts (aktifkan di CC)": "Adobe Fonts %d 件 (CC でアクティベート)",
     "%d efek plugin tidak ketemu": "プラグインエフェクト %d 件が見つかりません",
     "%d plugin perkiraan tidak dicopy": "推定プラグイン %d 件は未コピー",
+    "%d plugin perkiraan perlu dicek": "要確認の推定プラグイン %d 件",
     "%d error saat copy": "コピーエラー %d 件",
     "[CATATAN]": "[注意]",
     "[GAGAL]": "[失敗]",
@@ -170,7 +171,15 @@ JA = {
     "Lokasi": "場所",
     "Comp": "コンポ",
     "Hasil": "結果",
-    "Collect semua project": "すべてのプロジェクトを収集",
+    "Analisa semua": "すべて分析",
+    "Collect semua": "すべて収集",
+    "Tambahkan project ke daftar, lalu klik Analisa semua atau Collect semua.":
+        "プロジェクトをリストに追加して、「すべて分析」または「すべて収集」をクリックします。",
+    "Lihat detail analisa": "分析の詳細を表示",
+    "Analisa batch selesai: %s": "バッチ分析完了: %s",
+    "Analisa selesai: %s. Klik kanan sebuah project untuk melihat detailnya.":
+        "分析完了: %s。プロジェクトを右クリックすると詳細を確認できます。",
+    "%d footage, %d font, %d plugin (%s)": "フッテージ %d、フォント %d、プラグイン %d (%s)",
     "Analisa": "分析",
     "Batal": "キャンセル",
     "Buka folder hasil": "出力フォルダーを開く",
@@ -227,12 +236,14 @@ JA = {
         "コピーするプラグインファイルです。チェックボックスをクリックして選びます。「(推定)」は自動ではチェックされません。",
     "Centang semua": "すべてチェック",
     "Hapus semua centang": "すべてのチェックを外す",
-    'Collect banyak project sekaligus. Semua hasil masuk ke "Folder tujuan" di atas, tiap project ke folder '
-    '<nama>_Collected sendiri.\nOpsi yang dicentang di tab "1. Comp & opsi" dipakai untuk semua project. File .aep '
-    'atau folder juga bisa di-drag ke jendela ini.':
-        "複数のプロジェクトをまとめて収集します。結果はすべて上の「保存先フォルダー」に入り、プロジェクトごとに "
-        "<名前>_Collected フォルダーが作られます。\n「1. コンポとオプション」タブのオプションがすべてのプロジェクトに"
-        "使われます。.aep ファイルやフォルダーをこのウィンドウにドラッグすることもできます。",
+    'Analisa atau collect banyak project sekaligus dengan tombol di bawah. Hasil collect masuk ke "Folder tujuan" '
+    'di atas, tiap project ke folder <nama>_Collected sendiri.\nOpsi yang dicentang di tab "1. Comp & opsi" '
+    'dipakai untuk semua project. Klik kanan sebuah project untuk melihat detail analisanya. File .aep atau folder '
+    'juga bisa di-drag ke jendela ini.':
+        "下のボタンで複数のプロジェクトをまとめて分析・収集します。収集結果は上の「保存先フォルダー」に入り、"
+        "プロジェクトごとに <名前>_Collected フォルダーが作られます。\n「1. コンポとオプション」タブのオプションが"
+        "すべてのプロジェクトに使われます。プロジェクトを右クリックすると分析の詳細を確認できます。.aep ファイルや"
+        "フォルダーをこのウィンドウにドラッグすることもできます。",
     "Tambah file .aep...": ".aep ファイルを追加...",
     "Tambah folder...": "フォルダーを追加...",
     "Hapus yang dipilih": "選択した項目を削除",

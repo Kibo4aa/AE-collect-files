@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from collect_files_plus import plugins
-from collect_files_plus.batch import collect_many, find_projects, resolve_scope
+from collect_files_plus.batch import analyze_many, collect_many, find_projects, resolve_scope
 from collect_files_plus.collector import Options, analyze
 from collect_files_plus.plugins import PluginRoot
 from collect_files_plus.project import AepProject
@@ -80,6 +80,43 @@ def test_collect_many_mixed(tmp_path: Path):
     text = run.summary.read_text(encoding="utf-8")
     assert "[GAGAL]      rusak.aep" in text and "[OK]         Efek.aep" in text
     assert "Proyek Saya_Collected (2)" in text and "1 footage hilang" in text
+
+
+def test_analyze_many_copies_nothing(tmp_path: Path):
+    p1 = make_project(tmp_path / "A")
+    bad = tmp_path / "C" / "rusak.aep"
+    bad.parent.mkdir()
+    bad.write_bytes(b"bukan project")
+    mc = make_plugin_tree(tmp_path)
+    fx = make_fx_project(tmp_path)
+    env = env_for(tmp_path, plugin_roots=[PluginRoot(mc, "MediaCore", 1)])
+    dest = tmp_path / "out"
+    seen = []
+    run = analyze_many([p1, bad, fx], Options(dest_dir=dest), "auto", env=env,
+                       on_item=lambda i, it: seen.append((i, it.status)))
+    assert run.kind == "analyze" and run.summary is None
+    assert [it.status for it in run.items] == ["catatan", "gagal", "catatan"]
+    assert run.items[0].notes == ["1 footage hilang", "1 font tidak ketemu"]
+    assert run.items[0].info["footage"] == 5 and run.items[0].info["fonts"] == 1
+    assert run.items[0].result_name.startswith("5 footage, 1 font, 0 plugin (")
+    assert run.items[2].notes == ["1 font tidak ketemu"]
+    assert run.items[2].result_name.startswith("0 footage, 1 font, 3 plugin (")
+    assert run.items[1].error and run.items[1].result_name == ""
+    assert (2, "catatan") in seen and run.headline() == "0 OK, 2 ada catatan, 1 gagal (dari 3 project)"
+    assert not dest.exists()                                 # analisa tidak menulis apa pun
+
+
+def test_note_counts_guesses():
+    """Plugin perkiraan: setelah collect = "tidak dicopy", saat analisa saja = "perlu dicek"."""
+    from types import SimpleNamespace
+
+    from collect_files_plus.batch import BatchItem, note_counts
+    an = SimpleNamespace(footage=[], fonts=[], options=SimpleNamespace(collect_plugins=True), plugin_effects=[],
+                         candidates=[SimpleNamespace(selected=False), SimpleNamespace(selected=True)])
+    res = SimpleNamespace(errors=["x"])
+    assert BatchItem(Path("a.aep"), counts=note_counts(an)).notes == ["1 plugin perkiraan perlu dicek"]
+    assert BatchItem(Path("a.aep"), counts=note_counts(an, res)).notes == [
+        "1 plugin perkiraan tidak dicopy", "1 error saat copy"]
 
 
 def test_collect_many_cancel_before_start(tmp_path: Path):

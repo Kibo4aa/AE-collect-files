@@ -274,8 +274,13 @@ def test_gui_switch_language_keeps_state(gui, tmp_path, monkeypatch):
     assert app.var_status.get() == "Language changed to English."
     assert gui.load_settings()["lang"] == "en"
     texts = root.all_texts()
-    assert "Analyze" in texts and "Collect all projects" in texts
+    assert "Analyze" in texts and "Collect" in texts and "Collect all projects" not in texts
     assert _indonesian_words(" | ".join(texts)) == []
+    tab = app.nb.select()
+    app.nb.select(app.batch_tab)                               # tombol bawah ikut tab, dalam bahasa baru
+    assert (app.btn_analyze.kw["text"], app.btn_collect.kw["text"]) == ("Analyze all", "Collect all")
+    app.nb.select(tab)
+    assert (app.btn_analyze.kw["text"], app.btn_collect.kw["text"]) == ("Analyze", "Collect")
 
     app.start_collect()                                        # collect dengan opsi sama -> pakai centang tadi
     _finish(app)
@@ -484,7 +489,8 @@ def test_gui_batch_context_menu_and_progress(gui, tmp_path, monkeypatch):
     tree.row_at = "1"
     app._batch_menu(event)
     menu = app.ctx_menu
-    assert menu.labels() == ["Buka folder hasil", "Buka laporan", "Hapus dari daftar"] and menu.popped
+    assert menu.labels() == ["Lihat detail analisa", "Buka folder hasil", "Buka laporan",
+                             "Hapus dari daftar"] and menu.popped
     menu.invoke("Buka laporan")
     assert opened[-1] == app.batch_run.items[1].result.report
     menu.invoke("Buka folder hasil")
@@ -498,6 +504,75 @@ def test_gui_batch_context_menu_and_progress(gui, tmp_path, monkeypatch):
     tree.row_at = "0"
     app._batch_menu(event)
     assert app.ctx_menu.entry("Buka laporan")["state"] == "disabled"   # belum di-collect lagi
+
+
+def test_gui_batch_buttons_analyze_all_and_details(gui, tmp_path, monkeypatch):
+    """Di tab Batch tombol bawah menjadi "Analisa semua" / "Collect semua" (tidak ada tombol Collect kedua)."""
+    gui, mods = gui
+    from collect_files_plus import collector
+    env = env_for(tmp_path)
+    monkeypatch.setattr(collector, "Environment", lambda: env)
+    p1 = make_project(tmp_path / "A")
+    p2 = make_project(tmp_path / "B")
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    assert (app.btn_analyze.kw["text"], app.btn_collect.kw["text"]) == ("Analisa", "Collect")
+    assert app.var_status.get() == "Pilih file .aep untuk mulai."
+    texts = root.all_texts()
+    assert texts.count("Collect") == 1 and "Collect semua project" not in texts
+
+    app.nb.select(app.batch_tab)
+    assert (app.btn_analyze.kw["text"], app.btn_collect.kw["text"]) == ("Analisa semua", "Collect semua")
+    assert app.var_status.get().startswith("Tambahkan project ke daftar")
+    app.start_analyze()                                         # daftar masih kosong
+    assert any(k == "showwarning" and "masih kosong" in m for k, m in mods["tkinter.messagebox"].log)
+
+    app.add_batch_paths([str(p1), str(p2)])
+    out = tmp_path / "out"
+    app.var_dest.set(str(out))
+    app.start_analyze()                                         # = Analisa semua (F5)
+    assert app.btn_analyze.kw["state"] == "disabled" and app.progress.kw["mode"] == "determinate"
+    _finish(app)
+    run = app.batch_run
+    assert run.kind == "analyze" and [it.status for it in run.items] == ["catatan", "catatan"]
+    row = app.batch_tree.tree.items["0"]
+    assert row["values"][3] == "OK, 1 footage hilang; 1 font tidak ketemu" and row["tags"] == ("warn",)
+    assert row["values"][4].startswith("5 footage, 1 font, 0 plugin (")
+    assert app.var_status.get().startswith("Analisa selesai: 0 OK, 2 ada catatan")
+    assert not out.exists()                                     # analisa tidak menyalin apa pun
+    assert not any("Batch selesai" in m for _k, m in mods["tkinter.messagebox"].log)
+
+    # klik kanan > Lihat detail analisa: project dibuka di tab 1-5 dengan analisanya
+    event = type("E", (), {"x": 1, "y": 1, "x_root": 5, "y_root": 5})()
+    app.batch_tree.tree.row_at = "1"
+    app._batch_menu(event)
+    assert app.ctx_menu.entry("Buka folder hasil")["state"] == "disabled"     # belum di-collect
+    app.ctx_menu.invoke("Lihat detail analisa")
+    _finish(app)
+    assert app.var_aep.get() == str(p2) and app.aep.path == p2
+    assert app.nb.select() is not app.batch_tab and app.btn_collect.kw["text"] == "Collect"
+    assert len(app.foot_tree.tree.items) == 5 and all(app.comp_tree.checked.values())
+    assert app.analysis_key == app.options_key(app.current_options())      # Collect tidak menganalisa ulang
+    app.start_collect()                                         # collect project ini saja
+    _finish(app)
+    assert app.result.dest_root == out / "Proyek Saya_Collected"
+
+    # kembali ke tab Batch: Collect = Collect semua; klik dua kali baris yang sudah di-collect buka hasilnya
+    opened = []
+    monkeypatch.setattr(gui, "open_folder", lambda p: opened.append(p))
+    app.nb.select(app.batch_tab)
+    app.start_collect()
+    _finish(app)
+    assert app.batch_run.kind == "collect" and app.batch_run.summary is not None
+    assert sorted(d.name for d in out.iterdir() if d.is_dir()) == [
+        "Proyek Saya_Collected", "Proyek Saya_Collected (2)", "Proyek Saya_Collected (3)"]
+    app._batch_double("0")
+    assert opened[-1] == app.batch_run.items[0].result.dest_root
+    app.batch_paths.append(tmp_path / "baru.aep")              # baris tanpa hasil -> lihat analisanya
+    app._batch_double("2")
+    _finish(app)
+    assert "baru.aep" in app.log.get("1.0", "end-1c")          # file tidak ada -> error dilaporkan
+    assert any(k == "showerror" and "tidak bisa dibaca" in m for k, m in mods["tkinter.messagebox"].log)
 
 
 def test_gui_japanese_ui_has_no_indonesian(gui, tmp_path, monkeypatch):
@@ -518,7 +593,7 @@ def test_gui_japanese_ui_has_no_indonesian(gui, tmp_path, monkeypatch):
     app.add_batch_paths([str(tmp_path / "fx")])
     app.change_language("ja")
     texts = root.all_texts()
-    assert "分析" in texts and "収集" in texts and "すべてのプロジェクトを収集" in texts
+    assert "すべて分析" in texts and "すべて収集" in texts               # tab Batch aktif
     assert app.nb.tab_texts() == ["1. コンポとオプション", "2. プラグイン (3)", "3. フォント (1)", "4. フッテージ (0)",
                                   "5. すべてのエフェクト (7)", "バッチ (複数プロジェクト) (1)", "ログ"]
     assert [e["label"] for e in app.menubar.entries] == ["ファイル", "設定", "ヘルプ"]
