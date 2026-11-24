@@ -102,12 +102,24 @@ def docs_dir() -> Path:
 
 
 def show_tip(master, text: str, x: int, y: int, wrap: int = 900):
-    """Jendela tooltip kecil di posisi layar (x, y)."""
+    """Jendela tooltip kecil di posisi layar (x, y), digeser supaya tetap di dalam jendela aplikasi."""
     win = tk.Toplevel(master)
     win.wm_overrideredirect(True)
     win.wm_geometry("+%d+%d" % (x, y))
     ttk.Label(win, text=text, padding=(8, 4), relief="solid", borderwidth=1, wraplength=wrap,
               justify="left").pack()
+    try:
+        win.update_idletasks()
+        w, h = int(win.winfo_reqwidth()), int(win.winfo_reqheight())
+        top = master.winfo_toplevel()
+        left, upper = int(top.winfo_rootx()), int(top.winfo_rooty())
+        right, lower = left + int(top.winfo_width()), upper + int(top.winfo_height())
+        nx = max(left + 4, min(x, right - w - 4))
+        ny = y if y + h <= lower - 4 else max(upper + 4, y - h - 28)     # tidak muat di bawah: di atas
+        if (nx, ny) != (x, y):
+            win.wm_geometry("+%d+%d" % (nx, ny))
+    except Exception:  # noqa: BLE001 - posisi awal tetap dipakai
+        pass
     return win
 
 
