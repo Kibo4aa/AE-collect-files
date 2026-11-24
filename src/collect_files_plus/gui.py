@@ -118,9 +118,16 @@ def show_tip(master, text: str, x: int, y: int, wrap: int = 900):
         ny = y if y + h <= lower - 4 else max(upper + 4, y - h - 28)     # tidak muat di bawah: di atas
         if (nx, ny) != (x, y):
             win.wm_geometry("+%d+%d" % (nx, ny))
-    except Exception:  # noqa: BLE001 - posisi awal tetap dipakai
-        pass
+        if TIP_TRACE is not None:
+            TIP_TRACE.append({"x": x, "y": y, "w": w, "h": h, "left": left, "right": right, "nx": nx, "ny": ny})
+    except Exception as exc:  # noqa: BLE001 - posisi awal tetap dipakai
+        if TIP_TRACE is not None:
+            TIP_TRACE.append({"error": repr(exc)})
     return win
+
+
+#: Untuk uji tampilan: daftar perhitungan posisi tooltip (None = tidak dicatat).
+TIP_TRACE: Optional[list] = None
 
 
 class Tip:
