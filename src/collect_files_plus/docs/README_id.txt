@@ -23,11 +23,18 @@ MULAI CEPAT
 
 BANYAK PROJECT SEKALIGUS (BATCH)
 --------------------------------
-- Drag beberapa file .aep, atau satu folder, ke jendela aplikasi. Semuanya
-  masuk ke tab "Batch".
-- Selama tab Batch terbuka, tombol di bawah berlaku untuk seluruh daftar:
-  "Analisa semua" (F5) mengecek semua project tanpa menyalin apa pun,
-  "Collect semua" (Ctrl+Enter) meng-collect semuanya.
+- Klik "Banyak project (batch)" di atas, lalu drag beberapa file .aep, atau
+  satu folder, ke jendela aplikasi. Drag beberapa file sekaligus juga
+  langsung pindah ke mode ini.
+- Klik panah di samping project untuk melihat comp-nya, lalu centang comp
+  yang mau di-collect. Centang baris project = centang/hapus semua comp
+  project itu, dan project yang tidak ada centangnya dilewati. Project baru
+  otomatis mencentang comp di Render Queue (kalau kosong: comp aktif, kalau
+  tidak ada: semua comp). Tombol "Pilih comp" mengubah project yang dipilih,
+  atau semua project kalau tidak ada yang dipilih.
+- Tombol di bawah berlaku untuk seluruh daftar: "Analisa semua" (F5)
+  mengecek semua project tanpa menyalin apa pun, "Collect semua"
+  (Ctrl+Enter) meng-collect semuanya.
 - Semua project masuk ke folder tujuan yang sama, masing-masing ke folder
   <nama>_Collected sendiri. Satu project gagal tidak menghentikan yang lain.
 - File CollectFilesPlus_batch_<tanggal>.txt di folder tujuan berisi yang

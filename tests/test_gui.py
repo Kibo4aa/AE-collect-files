@@ -14,6 +14,20 @@ def _finish(app):
     app._poll()
 
 
+def _scanned(app, timeout=60.0):
+    """Tunggu daftar comp project batch selesai dibaca (thread latar), lalu proses hasilnya."""
+    import time
+    end = time.time() + timeout
+    while app._scan_thread is not None and time.time() < end:
+        time.sleep(0.02)
+    app._poll()
+
+
+def _rows(app):
+    """Nilai kolom (Comp, Status, Hasil) tiap baris project di daftar batch."""
+    return [app.batch_tree.tree.items[e.iid]["values"] for e in app.batch_entries]
+
+
 def _submenu(menu, label):
     return menu.entry(label)["menu"]
 
@@ -178,19 +192,22 @@ def test_gui_batch_flow(gui, tmp_path, monkeypatch):
     assert [p.name for p in app.batch_paths] == ["Proyek Saya.aep", "rusak.aep", "Proyek Saya.aep"]
     assert app.batch_count.kw["text"] == "3 project"
 
+    _scanned(app)
+    assert [r[0] for r in _rows(app)] == ["semua comp (3)", "gagal dibaca", "semua comp (3)"]
+    assert "rusak.aep" in app.batch_tree.tips[app.batch_entries[1].iid]
     app.var_dest.set(str(tmp_path / "out"))
     app.start_batch()
     _finish(app)
     run = app.batch_run
     assert [it.status for it in run.items] == ["catatan", "gagal", "catatan"]
-    rows = [app.batch_tree.tree.items[str(i)]["values"] for i in range(3)]
-    assert rows[0][3] == "OK, 1 footage hilang; 1 font tidak ketemu"
-    assert rows[1][3].startswith("GAGAL: ") and rows[2][4] == "Proyek Saya_Collected (2)"
+    rows = _rows(app)
+    assert rows[0][1] == "OK, 1 footage hilang; 1 font tidak ketemu"
+    assert rows[1][1].startswith("GAGAL: ") and rows[2][2] == "Proyek Saya_Collected (2)"
     assert any(k == "askyesno" and "Batch selesai" in m for k, m in mods["tkinter.messagebox"].log)
     assert app.last_folder == tmp_path / "out"
     assert any(f.name.startswith("CollectFilesPlus_batch_") for f in (tmp_path / "out").iterdir())
 
-    app.batch_tree.tree.selection_set(["1"])
+    app.batch_tree.tree.selection_set([app.batch_entries[1].iid + "/1"])     # baris comp -> project-nya
     app.batch_remove_selected()
     assert [p.parent.parent.name for p in app.batch_paths] == ["A", "B"]
 
@@ -257,7 +274,8 @@ def test_gui_switch_language_keeps_state(gui, tmp_path, monkeypatch):
     _finish(app)
     kaca = [i for i, l in app.plugin_tree.labels.items() if l.endswith("Kaca.aex")][0]
     app.plugin_tree.toggle([kaca])
-    app.batch_paths = [tmp_path / "x.aep"]
+    app.batch_entries = [app._new_entry(tmp_path / "x.aep")]
+    app._refresh_batch()
     old_nb = app.nb
 
     old_menu = app.menubar
@@ -268,7 +286,7 @@ def test_gui_switch_language_keeps_state(gui, tmp_path, monkeypatch):
     assert app.plugin_tree.checked[kaca] is False                 # centang tetap
     assert all(app.comp_tree.checked.values())
     assert app.plugin_total.kw["text"] == "2/3 ticked · %s" % app.plugin_total.kw["text"].split("· ")[1]
-    assert app.batch_tree.tree.items["0"]["values"][3] == "waiting"
+    assert _rows(app)[0][1:] == ["waiting", ""]
     assert "Membuka" in app.log.get("1.0", "end-1c")             # isi log lama tetap ada
     assert app.var_status.get() == "Language changed to English."
     assert gui.load_settings()["lang"] == "en"
@@ -276,8 +294,9 @@ def test_gui_switch_language_keeps_state(gui, tmp_path, monkeypatch):
     assert "Analyze" in texts and "Collect" in texts and "Collect all projects" not in texts
     assert _indonesian_words(" | ".join(texts)) == []
     tab = app.nb.select()
-    app.nb.select(app.batch_tab)                               # tombol bawah ikut tab, dalam bahasa baru
+    app.set_mode("batch")                                      # tombol bawah ikut mode, dalam bahasa baru
     assert (app.btn_analyze.kw["text"], app.btn_collect.kw["text"]) == ("Analyze all", "Collect all")
+    app.set_mode("single")
     app.nb.select(tab)
     assert (app.btn_analyze.kw["text"], app.btn_collect.kw["text"]) == ("Analyze", "Collect")
 
@@ -477,6 +496,7 @@ def test_gui_batch_context_menu_and_progress(gui, tmp_path, monkeypatch):
     root = mods["tkinter"].Tk()
     app = gui.App(root)
     app.add_batch_paths([str(p1), str(p2)])
+    _scanned(app)
     assert app.nb.tab_texts()[5] == "Batch (2)"
     app.var_dest.set(str(tmp_path / "out"))
     app.start_batch()
@@ -484,10 +504,11 @@ def test_gui_batch_context_menu_and_progress(gui, tmp_path, monkeypatch):
     _finish(app)
     assert app.progress.kw["value"] == 0                          # selesai -> direset
     tree = app.batch_tree.tree
-    assert tree.items["0"]["tags"] == ("warn",) and tree.items["1"]["tags"] == ("warn",)
+    first, second = [e.iid for e in app.batch_entries]
+    assert tree.items[first]["tags"] == ("warn",) and tree.items[second]["tags"] == ("warn",)
 
     event = type("E", (), {"x": 1, "y": 1, "x_root": 5, "y_root": 5})()
-    tree.row_at = "1"
+    tree.row_at = second
     app._batch_menu(event)
     menu = app.ctx_menu
     assert menu.labels() == ["Lihat detail analisa", "Buka folder hasil", "Buka laporan",
@@ -497,12 +518,12 @@ def test_gui_batch_context_menu_and_progress(gui, tmp_path, monkeypatch):
     menu.invoke("Buka folder hasil")
     assert opened[-1] == app.batch_run.items[1].result.dest_root
     assert opened[-1].name == "Proyek Saya_Collected (2)"
-    app.batch_open("0")                                          # klik dua kali
+    app.batch_open(first)                                        # klik dua kali
     assert opened[-1].name == "Proyek Saya_Collected"
     menu.invoke("Hapus dari daftar")
     assert [p.parent.parent.name for p in app.batch_paths] == ["A"] and app.batch_run is None
-    app._batch_menu(event)                                       # baris 1 sudah tidak ada
-    tree.row_at = "0"
+    app._batch_menu(event)                                       # baris itu sudah tidak ada
+    tree.row_at = first
     app._batch_menu(event)
     assert app.ctx_menu.entry("Buka laporan")["state"] == "disabled"   # belum di-collect lagi
 
@@ -522,13 +543,14 @@ def test_gui_batch_buttons_analyze_all_and_details(gui, tmp_path, monkeypatch):
     texts = root.all_texts()
     assert texts.count("Collect") == 1 and "Collect semua project" not in texts
 
-    app.nb.select(app.batch_tab)
+    app.set_mode("batch")
     assert (app.btn_analyze.kw["text"], app.btn_collect.kw["text"]) == ("Analisa semua", "Collect semua")
     assert app.var_status.get().startswith("Tambahkan project ke daftar")
     app.start_analyze()                                         # daftar masih kosong
     assert any(k == "showwarning" and "masih kosong" in m for k, m in mods["tkinter.messagebox"].log)
 
     app.add_batch_paths([str(p1), str(p2)])
+    _scanned(app)
     out = tmp_path / "out"
     app.var_dest.set(str(out))
     app.start_analyze()                                         # = Analisa semua (F5)
@@ -536,22 +558,23 @@ def test_gui_batch_buttons_analyze_all_and_details(gui, tmp_path, monkeypatch):
     _finish(app)
     run = app.batch_run
     assert run.kind == "analyze" and [it.status for it in run.items] == ["catatan", "catatan"]
-    row = app.batch_tree.tree.items["0"]
-    assert row["values"][3] == "OK, 1 footage hilang; 1 font tidak ketemu" and row["tags"] == ("warn",)
-    assert row["values"][4].startswith("5 footage, 1 font, 0 plugin (")
+    row = app.batch_tree.tree.items[app.batch_entries[0].iid]
+    assert row["values"][1] == "OK, 1 footage hilang; 1 font tidak ketemu" and row["tags"] == ("warn",)
+    assert row["values"][2].startswith("5 footage, 1 font, 0 plugin (")
     assert app.var_status.get().startswith("Analisa selesai: 0 OK, 2 ada catatan")
     assert not out.exists()                                     # analisa tidak menyalin apa pun
     assert not any("Batch selesai" in m for _k, m in mods["tkinter.messagebox"].log)
 
     # klik kanan > Lihat detail analisa: project dibuka di tab 1-5 dengan analisanya
     event = type("E", (), {"x": 1, "y": 1, "x_root": 5, "y_root": 5})()
-    app.batch_tree.tree.row_at = "1"
+    app.batch_tree.tree.row_at = app.batch_entries[1].iid
     app._batch_menu(event)
     assert app.ctx_menu.entry("Buka folder hasil")["state"] == "disabled"     # belum di-collect
     app.ctx_menu.invoke("Lihat detail analisa")
     _finish(app)
     assert app.var_aep.get() == str(p2) and app.aep.path == p2
-    assert app.nb.select() is not app.batch_tab and app.btn_collect.kw["text"] == "Collect"
+    assert app.var_mode.get() == "single" and app.nb.select() is not app.batch_tab
+    assert app.btn_collect.kw["text"] == "Collect"
     assert len(app.foot_tree.tree.items) == 5 and all(app.comp_tree.checked.values())
     assert app.analysis_key == app.options_key(app.current_options())      # Collect tidak menganalisa ulang
     app.start_collect()                                         # collect project ini saja
@@ -561,16 +584,18 @@ def test_gui_batch_buttons_analyze_all_and_details(gui, tmp_path, monkeypatch):
     # kembali ke tab Batch: Collect = Collect semua; klik dua kali baris yang sudah di-collect buka hasilnya
     opened = []
     monkeypatch.setattr(gui, "open_folder", lambda p: opened.append(p))
-    app.nb.select(app.batch_tab)
+    app.set_mode("batch")
     app.start_collect()
     _finish(app)
     assert app.batch_run.kind == "collect" and app.batch_run.summary is not None
     assert sorted(d.name for d in out.iterdir() if d.is_dir()) == [
         "Proyek Saya_Collected", "Proyek Saya_Collected (2)", "Proyek Saya_Collected (3)"]
-    app._batch_double("0")
+    app._batch_double(app.batch_entries[0].iid)
     assert opened[-1] == app.batch_run.items[0].result.dest_root
-    app.batch_paths.append(tmp_path / "baru.aep")              # baris tanpa hasil -> lihat analisanya
-    app._batch_double("2")
+    extra = app._new_entry(tmp_path / "baru.aep")              # baris tanpa hasil -> lihat analisanya
+    app.batch_entries.append(extra)
+    app._refresh_batch()
+    app._batch_double(extra.iid)
     _finish(app)
     assert "baru.aep" in app.log.get("1.0", "end-1c")          # file tidak ada -> error dilaporkan
     assert any(k == "showerror" and "tidak bisa dibaca" in m for k, m in mods["tkinter.messagebox"].log)
@@ -593,9 +618,12 @@ def test_gui_clean_layout(gui, tmp_path, monkeypatch):
     root = mods["tkinter"].Tk()
     app = gui.App(root)
     assert app.nb.tab_texts() == ["Comp & opsi", "Plugin", "Font", "Footage", "Semua efek", "Batch", "Log"]
-    boxes = {w.kw["text"]: w for w in _widgets(root) if type(w).__name__ == "Checkbutton"}
-    assert list(boxes) == ["Footage", "Font", "Plugin", "Reduce Project", "Lewati efek yang dimatikan",
-                           "File pendukung plugin", "Preset animasi (.ffx)"]
+    checks = [w for w in _widgets(root) if type(w).__name__ == "Checkbutton"]
+    names = ["Footage", "Font", "Plugin", "Reduce Project", "Lewati efek yang dimatikan",
+             "File pendukung plugin", "Preset animasi (.ffx)"]
+    assert [w.kw["text"] for w in checks] == names * 2         # panel opsi di mode satu project + batch
+    assert checks[0].kw["variable"] is checks[7].kw["variable"]   # centangnya sama
+    boxes = {w.kw["text"]: w for w in checks}
     assert all("\n" not in t for t in boxes)                       # tidak ada lagi label 2 baris
     assert "relink" in boxes["Footage"].tooltip.text and "Adobe Fonts" in boxes["Font"].tooltip.text
     texts = " | ".join(root.all_texts())
@@ -626,14 +654,102 @@ def test_gui_clean_layout(gui, tmp_path, monkeypatch):
     _finish(app)
     assert app.btn_open.packed                                    # sudah ada hasil -> tombol muncul
 
-    # tab Batch: kolom Project tidak dipakai -> dimatikan
-    app.nb.select(app.batch_tab)
-    assert app.ent_aep.kw["state"] == "disabled" and app.btn_aep.kw["state"] == "disabled"
+    # mode batch: baris Project disembunyikan, hanya tab Batch + Log
+    app.set_mode("batch")
+    assert not app.ent_aep.gridded and not app.lbl_aep.gridded and app.nb.visible_texts() == ["Batch", "Log"]
     assert app.batch_tree.empty_label.placed and "Drag file .aep atau folder" in app.batch_tree.empty_text
-    auto = [w for w in _widgets(root) if type(w).__name__ == "Radiobutton" and w.kw.get("value") == "auto"][0]
-    assert auto.kw["text"] == "Otomatis" and "Render Queue" in auto.tooltip.text
-    app.nb.select(0)
-    assert app.ent_aep.kw["state"] == "normal"
+    pick = [w for w in _widgets(root) if type(w).__name__ == "Label" and w.kw.get("text") == "Pilih comp:"][0]
+    assert "Render Queue" in pick.tooltip.text
+    app.set_mode("single")
+    assert app.ent_aep.gridded and app.nb.visible_texts()[0] == "Comp & opsi"
+
+
+def test_gui_batch_mode_and_comp_selection(gui, tmp_path, monkeypatch):
+    """Mode batch terpisah dari tab project; comp yang di-collect dipilih per project."""
+    gui, mods = gui
+    from collect_files_plus import collector
+    env = env_for(tmp_path)
+    monkeypatch.setattr(collector, "Environment", lambda: env)
+    a = make_project(tmp_path / "A")                 # 3 comp, tanpa Render Queue / comp aktif -> semua
+    fx = make_fx_project(tmp_path)                   # 1 comp (comp aktif)
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    assert app.var_mode.get() == "single" and app.nb.visible_texts() == [
+        "Comp & opsi", "Plugin", "Font", "Footage", "Semua efek", "Log"]
+    app.add_batch_paths([str(a), str(fx)])
+    assert app.var_mode.get() == "batch" and app.nb.visible_texts() == ["Batch (2)", "Log"]
+    ea, ef = app.batch_entries
+    assert _rows(app)[0][0] == "membaca comp..."
+    _scanned(app)
+    tree = app.batch_tree.tree
+    ids = {c[1]: c[0] for c in ea.comps}
+    assert [r[0] for r in _rows(app)] == ["semua comp (3)", "semua comp (1)"]
+    assert len(tree.get_children(ea.iid)) == 3 and tree.items[ea.iid]["text"].startswith(gui.CHECK_ON)
+    main = "%s/%d" % (ea.iid, ids["Main"])
+    assert tree.items[main]["text"] == gui.CHECK_ON + "Main"
+    assert tree.items["%s/%d" % (ea.iid, ids["Precomp Logo"])]["values"][0] == "precomp di 1 comp"
+
+    click = type("E", (), {"x": 1, "y": 1})()
+    tree.row_at = "%s/%d" % (ea.iid, ids["Template Tak Dipakai"])
+    app._batch_click(click)                            # hapus centang satu comp
+    assert ea.checked == {ids["Main"], ids["Precomp Logo"]} and _rows(app)[0][0] == "Precomp Logo, Main"
+    assert tree.items[ea.iid]["text"].startswith(gui.CHECK_PART)
+    tree.element_at = "Treeitem.indicator"           # klik panah buka/tutup: centang tidak berubah
+    app._batch_click(click)
+    tree.element_at = "text"
+    assert len(ea.checked) == 2
+    tree.row_at = ea.iid
+    app._batch_click(click)                            # centang project (sebagian) -> semua comp
+    assert len(ea.checked) == 3
+    app._batch_click(click)                            # sekali lagi -> tidak ada (dilewati)
+    assert ea.checked == set() and _rows(app)[0][0] == "tidak ada (dilewati)"
+
+    tree.selection_set([ea.iid])
+    app.batch_select("rq")                             # project A tidak punya Render Queue: tidak berubah
+    assert ea.checked == set() and "Pilihan tidak diubah di 1 project" in app.var_status.get()
+    tree.selection_set([])
+    app.batch_select("all")                            # tanpa pilihan baris -> semua project
+    assert len(ea.checked) == 3 and len(ef.checked) == 1
+    tree.selection_set([main])
+    app._batch_space()                                 # spasi pada baris comp
+    app.batch_select("active")                         # project A juga tidak punya comp aktif
+    assert ids["Main"] not in ea.checked
+    tree.row_at = ef.iid
+    app._batch_click(click)                            # project fx tidak dicentang -> dilewati
+
+    out = tmp_path / "out"
+    app.var_dest.set(str(out))
+    app.start_collect()
+    _finish(app)
+    assert [it.status for it in app.batch_run.items] == ["catatan", "dilewati"]
+    assert sorted(app.batch_run.items[0].scope_names) == ["Precomp Logo", "Template Tak Dipakai"]
+    assert _rows(app)[1][1] == "dilewati: tidak ada comp yang dicentang"
+    assert [d.name for d in out.iterdir() if d.is_dir()] == ["Proyek Saya_Collected"]
+
+    # semua project tidak dicentang -> tidak bisa dijalankan
+    app.batch_select("none")
+    app.start_analyze()
+    assert app.worker is None or not app.worker.is_alive()
+    assert any("Belum ada comp yang dicentang" in m for _k, m in mods["tkinter.messagebox"].log)
+
+    # pilihan cepat sebelum comp selesai dibaca dipakai begitu daftarnya terbaca
+    late = app._new_entry(a)
+    app.batch_entries.append(late)
+    app._refresh_batch()
+    tree.selection_set([late.iid])
+    app.batch_select("rq")
+    assert late.pending == "rq" and _rows(app)[2][0] == "Render Queue"
+    app._on_batch_comps(late.iid, (list(ea.comps), {ids["Main"]}, ""))
+    assert late.checked == {ids["Main"]}              # tidak ada Render Queue -> pilihan awal project
+    assert late.scope() == [ids["Main"]]
+
+    # ganti bahasa: mode, daftar, dan centang tetap
+    app.change_language("en")
+    assert app.var_mode.get() == "batch" and app.nb.visible_texts() == ["Batch (3)", "Log"]
+    assert app.batch_tree.tree.items[late.iid]["values"][0] == "Main"
+    assert (app.btn_analyze.kw["text"], app.btn_collect.kw["text"]) == ("Analyze all", "Collect all")
+    app.set_mode("single")
+    assert app.nb.visible_texts()[0] == "Comps & options" and app.btn_collect.kw["text"] == "Collect"
 
 
 def test_gui_japanese_ui_has_no_indonesian(gui, tmp_path, monkeypatch):
@@ -906,6 +1022,20 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         app.hide_update_bar()
         root.update()
         assert app.update_bar.winfo_manager() == ""
+        # mode batch dengan widget asli: daftar project bertingkat, centang comp per project
+        app.add_batch_paths([str(proj)])
+        _scanned(app)
+        root.update()
+        entry = app.batch_entries[0]
+        kids = app.batch_tree.tree.get_children(entry.iid)
+        assert len(kids) == 3 and app.nb.tab(app.batch_tab, "state") == "normal"
+        assert app.nb.tab(app.single_tabs[0], "state") == "hidden" and app.ent_aep.winfo_manager() == ""
+        app._batch_toggle(kids[0])
+        root.update()
+        assert app.batch_tree.tree.item(entry.iid, "text").startswith(real_gui.CHECK_PART)
+        app.set_mode("single")
+        root.update()
+        assert app.nb.tab(app.batch_tab, "state") == "hidden" and app.ent_aep.winfo_manager() == "grid"
         app.start_collect()
         _finish(app)
         root.update()

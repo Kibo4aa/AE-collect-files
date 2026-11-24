@@ -23,11 +23,18 @@ QUICK START
 
 MANY PROJECTS AT ONCE (BATCH)
 -----------------------------
-- Drag several .aep files, or a folder, onto the window. They are added to
-  the "Batch" tab.
-- While the Batch tab is open, the buttons at the bottom work on the whole
-  list: "Analyze all" (F5) checks every project without copying anything,
-  "Collect all" (Ctrl+Enter) collects them.
+- Click "Many projects (batch)" at the top, then drag several .aep files,
+  or a folder, onto the window. Dropping several files switches to this
+  mode by itself.
+- Click the arrow next to a project to see its comps and tick the ones to
+  collect. Ticking the project row ticks or unticks all of its comps, and a
+  project with nothing ticked is skipped. New projects start with the comps
+  in their Render Queue ticked (if it is empty: the active comp, otherwise
+  all comps). The "Select comps" buttons change the selected projects, or
+  every project when none is selected.
+- The buttons at the bottom work on the whole list: "Analyze all" (F5)
+  checks every project without copying anything, "Collect all"
+  (Ctrl+Enter) collects them.
 - Every project goes into the same destination folder, each one into its
   own <name>_Collected folder. One failing project does not stop the others.
 - CollectFilesPlus_batch_<date>.txt in the destination folder lists what

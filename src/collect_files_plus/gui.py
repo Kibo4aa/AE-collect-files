@@ -11,8 +11,9 @@ import sys
 import threading
 import traceback
 import webbrowser
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -24,6 +25,7 @@ APP_TITLE = "Collect Files Plus"
 GITHUB_URL = "https://github.com/Kibo4aa/AE-collect-files"
 CHECK_ON = "☑ "
 CHECK_OFF = "☐ "
+CHECK_PART = "▣ "     # sebagian comp project dicentang
 
 
 def settings_path() -> Path:
@@ -192,7 +194,10 @@ class TreeTip:
         if not row:
             return ""
         if col == "#0":
-            return str(self.tree.item(row, "text")).replace(CHECK_ON, "").replace(CHECK_OFF, "").strip()
+            text = str(self.tree.item(row, "text"))
+            for mark in (CHECK_ON, CHECK_OFF, CHECK_PART):
+                text = text.replace(mark, "")
+            return text.strip()
         try:
             values = self.tree.item(row, "values")
             return str(values[int(col[1:]) - 1])
@@ -396,8 +401,74 @@ class InfoTree(ttk.Frame, EmptyHint):
                 self.tree.item(iid, values=list(values), tags=tuple(tags))
 
 
+class ProjectTree(ttk.Frame, EmptyHint):
+    """Daftar project batch. Tiap project bisa dibuka (panah) untuk mencentang comp-nya."""
+
+    def __init__(self, master, columns, widths, height=8):
+        super().__init__(master)
+        self.tree = ttk.Treeview(self, columns=columns[1:], height=height, selectmode="extended")
+        self.tree.heading("#0", text=columns[0], anchor="w")
+        self.tree.column("#0", width=widths[0], minwidth=120, anchor="w", stretch=True)
+        for i, c in enumerate(columns[1:], start=1):
+            self.tree.heading(c, text=c, anchor="w")
+            self.tree.column(c, width=widths[i], minwidth=50, anchor="w", stretch=True)
+        ys = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=ys.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        ys.grid(row=0, column=1, sticky="ns")
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+        self._init_empty()
+        self.tip = TreeTip(self.tree, row_tips=self.tips)
+
+    def clear(self) -> None:
+        self.tree.delete(*self.tree.get_children())
+        self.tips.clear()
+        self._sync_empty()
+
+
+@dataclass(eq=False)
+class BatchEntry:
+    """Satu project di daftar batch beserta comp yang dicentang."""
+
+    path: Path
+    iid: str
+    comps: Optional[list] = None        # (id, nama, di Render Queue, comp aktif, jadi precomp di n comp)
+    default: Set[int] = field(default_factory=set)
+    checked: Set[int] = field(default_factory=set)
+    excluded: bool = False              # centang project dihapus sebelum comp-nya selesai dibaca
+    pending: str = ""                   # pilihan cepat (rq/active/all/none) yang menunggu comp terbaca
+    error: str = ""
+
+    def state(self) -> str:
+        """on / off / part (sebagian comp)."""
+        if self.comps is None:
+            return "off" if self.excluded or self.pending == "none" else "on"
+        if not self.checked:
+            return "off"
+        return "on" if len(self.checked) == len(self.comps) else "part"
+
+    def mode_ids(self, mode: str) -> Optional[Set[int]]:
+        """Comp untuk pilihan cepat. None = tidak ada comp yang cocok (pilihan dibiarkan)."""
+        comps = self.comps or []
+        if mode == "all":
+            return {c[0] for c in comps}
+        if mode == "none":
+            return set()
+        ids = {c[0] for c in comps if (c[2] if mode == "rq" else c[3])}
+        return ids or None
+
+    def scope(self):
+        """Pilihan comp untuk batch.collect_many / analyze_many: mode atau daftar id ([] = dilewati)."""
+        if self.comps is None:
+            if self.excluded or self.pending == "none":
+                return []
+            return self.pending if self.pending in ("rq", "active", "all") else "auto"
+        return sorted(self.checked)
+
+
 BATCH_TAG = {"ok": "ok", "catatan": "warn", "gagal": "error", "jalan": "run", "dibatalkan": "muted",
-             "menunggu": "muted"}
+             "menunggu": "muted", "dilewati": "muted"}
 SINGLE_HINT = N_("Pilih file .aep untuk mulai.")
 BATCH_HINT = N_("Tambahkan project ke daftar, lalu klik Analisa semua atau Collect semua.")
 NOT_ANALYZED = N_("Belum ada hasil. Klik Analisa.")
@@ -409,8 +480,8 @@ TIP_REDUCE = N_("Buang comp dan footage yang tidak dipakai comp yang dicentang (
 TIP_SKIP_OFF = N_("Efek dengan ikon fx mati tidak dihitung, jadi pluginnya tidak ikut dicopy.")
 TIP_SUPPORT = N_("Ikut copy DLL dan file data di folder yang sama dengan file plugin.")
 TIP_PRESETS = N_("Ikut copy animation preset (.ffx) yang namanya sama dengan efek yang di-rename.")
-TIP_AUTO_SCOPE = N_("Comp di Render Queue. Kalau kosong, comp yang aktif saat project disimpan. Kalau tidak ada, "
-                    "semua comp.")
+TIP_AUTO_SCOPE = N_("Comp yang dicentang otomatis saat project dibuka: comp di Render Queue. Kalau kosong, comp "
+                    "yang aktif saat project disimpan. Kalau tidak ada, semua comp.")
 
 
 class App:
@@ -430,7 +501,13 @@ class App:
         self.events: "queue.Queue[tuple]" = queue.Queue()
         self.worker: Optional[threading.Thread] = None
         self.cancel = threading.Event()
-        self.batch_paths: List[Path] = []
+        self.batch_entries: List[BatchEntry] = []
+        self.batch_live: Dict[int, tuple] = {}     # status baris selama batch berjalan
+        self.batch_expanded: Set[str] = set()      # project yang daftar comp-nya sedang terbuka
+        self._batch_seq = 0
+        self._scan_queue: "queue.Queue[tuple]" = queue.Queue()
+        self._scan_lock = threading.Lock()
+        self._scan_thread: Optional[threading.Thread] = None
         self.batch_run = None
         self.batch_total = 0
         self.last_folder: Optional[Path] = None
@@ -467,7 +544,7 @@ class App:
         self.opt_skip_off = tk.BooleanVar(value=s.get("skip_disabled", True))
         self.opt_support = tk.BooleanVar(value=s.get("support_files", False))
         self.opt_presets = tk.BooleanVar(value=s.get("presets", False))
-        self.var_batch_scope = tk.StringVar(value=s.get("batch_scope", "auto"))
+        self.var_mode = tk.StringVar(value="single")     # single / batch
         self.var_lang = tk.StringVar(value=get_language())
         self.var_theme = tk.StringVar(value=s.get("theme", "system"))
         self.var_auto_update = tk.BooleanVar(value=s.get("check_updates", True))
@@ -602,14 +679,22 @@ class App:
         top = ttk.Frame(self.root, padding=(8, 8, 8, 2))
         top.pack(fill="x")
         self._top = top
-        ttk.Label(top, text=_("Project")).grid(row=0, column=0, sticky="w", **pad)
+        # dua mode: satu project (tab comp/plugin/font/footage/efek) atau banyak project (daftar batch)
+        modes = ttk.Frame(top)
+        modes.grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(0, 6))
+        toggle = "Toggle.TButton" if self.theme_name else "Toolbutton"
+        for value, text in (("single", _("Satu project")), ("batch", _("Banyak project (batch)"))):
+            ttk.Radiobutton(modes, text=text, value=value, variable=self.var_mode, style=toggle,
+                            command=self._apply_mode).pack(side="left", padx=(0, 6))
+        self.lbl_aep = ttk.Label(top, text=_("Project"))
+        self.lbl_aep.grid(row=1, column=0, sticky="w", **pad)
         self.ent_aep = ttk.Entry(top, textvariable=self.var_aep)
-        self.ent_aep.grid(row=0, column=1, sticky="ew", **pad)
+        self.ent_aep.grid(row=1, column=1, sticky="ew", **pad)
         self.btn_aep = ttk.Button(top, text=_("Pilih..."), command=self.choose_aep)
-        self.btn_aep.grid(row=0, column=2, sticky="ew", **pad)
-        ttk.Label(top, text=_("Folder tujuan")).grid(row=1, column=0, sticky="w", **pad)
-        ttk.Entry(top, textvariable=self.var_dest).grid(row=1, column=1, sticky="ew", **pad)
-        ttk.Button(top, text=_("Pilih..."), command=self.choose_dest).grid(row=1, column=2, sticky="ew", **pad)
+        self.btn_aep.grid(row=1, column=2, sticky="ew", **pad)
+        ttk.Label(top, text=_("Folder tujuan")).grid(row=2, column=0, sticky="w", **pad)
+        ttk.Entry(top, textvariable=self.var_dest).grid(row=2, column=1, sticky="ew", **pad)
+        ttk.Button(top, text=_("Pilih..."), command=self.choose_dest).grid(row=2, column=2, sticky="ew", **pad)
         top.columnconfigure(1, weight=1)
 
         self.nb = ttk.Notebook(self.root)
@@ -633,29 +718,16 @@ class App:
         left.pack(side="left", fill="both", expand=True)
         row = ttk.Frame(left)
         row.pack(side="bottom", fill="x", pady=(4, 0))
-        ttk.Label(row, text=_("Pilih:")).pack(side="left", padx=(0, 6))
+        pick = ttk.Label(row, text=_("Pilih:"))
+        pick.pack(side="left", padx=(0, 6))
+        Tip(pick, _(TIP_AUTO_SCOPE))
         small(row, _("Render Queue"), lambda: self.select_comps("rq"))
         small(row, _("Comp aktif"), lambda: self.select_comps("active"))
         small(row, _("Semua"), lambda: self.comp_tree.set_all(True))
         small(row, _("Kosongkan"), lambda: self.comp_tree.set_all(False))
         self.comp_tree = CheckTree(left, [_("Comp"), _("Keterangan")], self._w(340, 260), height=8)
         self.comp_tree.pack(fill="both", expand=True)
-        groups = (
-            (_("Yang dikumpulkan"), ((self.opt_footage, N_("Footage"), TIP_FOOTAGE),
-                                     (self.opt_fonts, N_("Font"), TIP_FONTS),
-                                     (self.opt_plugins, N_("Plugin"), TIP_PLUGINS))),
-            (_("Opsi"), ((self.opt_reduce, N_("Reduce Project"), TIP_REDUCE),
-                         (self.opt_skip_off, N_("Lewati efek yang dimatikan"), TIP_SKIP_OFF),
-                         (self.opt_support, N_("File pendukung plugin"), TIP_SUPPORT),
-                         (self.opt_presets, N_("Preset animasi (.ffx)"), TIP_PRESETS))),
-        )
-        for n, (title, items) in enumerate(groups):
-            box = ttk.LabelFrame(right, text=title, padding=(10, 4, 10, 6))
-            box.pack(fill="x", pady=(0 if n == 0 else 8, 0))
-            for var, text, tip in items:
-                cb = ttk.Checkbutton(box, text=_(text), variable=var)
-                cb.pack(anchor="w", pady=2)
-                Tip(cb, _(tip))
+        self._build_options(right)
 
         # Tab plugin
         tab2 = ttk.Frame(self.nb, padding=6)
@@ -690,29 +762,37 @@ class App:
         for tree in (self.plugin_tree, self.font_tree, self.foot_tree, self.fx_tree):
             tree.set_empty_text(_(NOT_ANALYZED))
 
-        # Tab batch: banyak project sekaligus (tombol Analisa/Collect di bawah berlaku untuk daftar ini)
+        # Tab batch (mode banyak project): daftar project, buka tiap project untuk mencentang comp-nya
         tabb = ttk.Frame(self.nb, padding=6)
         add_tab(tabb, _("Batch"))
         self.batch_tab = tabb
-        rs = ttk.Frame(tabb)
-        rs.pack(side="bottom", fill="x", pady=(6, 0))
-        rb = ttk.Frame(tabb)
+        right_b = ttk.Frame(tabb)
+        right_b.pack(side="right", fill="y", padx=(8, 0))
+        self._build_options(right_b)
+        left_b = ttk.Frame(tabb)
+        left_b.pack(side="left", fill="both", expand=True)
+        rs = ttk.Frame(left_b)
+        rs.pack(side="bottom", fill="x", pady=(4, 0))
+        pick_b = ttk.Label(rs, text=_("Pilih comp:"))
+        pick_b.pack(side="left", padx=(0, 6))
+        Tip(pick_b, _(TIP_AUTO_SCOPE))
+        small(rs, _("Render Queue"), lambda: self.batch_select("rq"))
+        small(rs, _("Comp aktif"), lambda: self.batch_select("active"))
+        small(rs, _("Semua"), lambda: self.batch_select("all"))
+        small(rs, _("Kosongkan"), lambda: self.batch_select("none"))
+        rb = ttk.Frame(left_b)
         rb.pack(side="bottom", fill="x", pady=(4, 0))
         ttk.Button(rb, text=_("Tambah file .aep..."), command=self.batch_add_files).pack(side="left", padx=(0, 4))
         ttk.Button(rb, text=_("Tambah folder..."), command=self.batch_add_folder).pack(side="left", padx=(0, 8))
         small(rb, _("Hapus yang dipilih"), self.batch_remove_selected)
-        small(rb, _("Kosongkan"), self.batch_clear)
+        small(rb, _("Hapus semua"), self.batch_clear)
         self.batch_count = ttk.Label(rb, text="")
         self.batch_count.pack(side="right")
-        ttk.Label(rs, text=_("Comp yang dibaca:")).pack(side="left", padx=(0, 4))
-        auto = ttk.Radiobutton(rs, text=_("Otomatis"), value="auto", variable=self.var_batch_scope)
-        auto.pack(side="left", padx=4)
-        Tip(auto, _(TIP_AUTO_SCOPE))
-        ttk.Radiobutton(rs, text=_("Semua comp"), value="all", variable=self.var_batch_scope).pack(side="left", padx=4)
-        self.batch_tree = InfoTree(tabb, [_("Project"), _("Lokasi"), _("Comp"), _("Status"), _("Hasil")],
-                                   self._w(150, 180, 140, 250, 250), height=8)
+        self.batch_tree = ProjectTree(left_b, [_("Project"), _("Comp"), _("Status"), _("Hasil")],
+                                      self._w(250, 170, 230, 200), height=8)
         self.batch_tree.pack(fill="both", expand=True)
         self.batch_tree.set_empty_text(_("Drag file .aep atau folder ke sini\natau klik \"Tambah file .aep...\""))
+        self.single_tabs = [tab1, tab2, tab3, tab4, tab5]
 
         tab6 = ttk.Frame(self.nb, padding=6)
         add_tab(tab6, _("Log"))
@@ -737,8 +817,66 @@ class App:
         self._bind_tree_actions()
         self._update_comp_hint()
         self._recolor()
-        # tombol Analisa/Collect di bawah: di tab Batch berlaku untuk semua project di daftar
-        self.nb.bind("<<NotebookTabChanged>>", self._sync_action_buttons, add="+")
+        self._refresh_batch()
+        self._apply_mode()
+
+    def _build_options(self, parent) -> None:
+        """Panel "Yang dikumpulkan" + "Opsi". Dipasang di mode satu project dan mode batch
+        (variabelnya sama, jadi centangnya selalu sama)."""
+        groups = (
+            (_("Yang dikumpulkan"), ((self.opt_footage, N_("Footage"), TIP_FOOTAGE),
+                                     (self.opt_fonts, N_("Font"), TIP_FONTS),
+                                     (self.opt_plugins, N_("Plugin"), TIP_PLUGINS))),
+            (_("Opsi"), ((self.opt_reduce, N_("Reduce Project"), TIP_REDUCE),
+                         (self.opt_skip_off, N_("Lewati efek yang dimatikan"), TIP_SKIP_OFF),
+                         (self.opt_support, N_("File pendukung plugin"), TIP_SUPPORT),
+                         (self.opt_presets, N_("Preset animasi (.ffx)"), TIP_PRESETS))),
+        )
+        for n, (title, items) in enumerate(groups):
+            box = ttk.LabelFrame(parent, text=title, padding=(10, 4, 10, 6))
+            box.pack(fill="x", pady=(0 if n == 0 else 8, 0))
+            for var, text, tip in items:
+                cb = ttk.Checkbutton(box, text=_(text), variable=var)
+                cb.pack(anchor="w", pady=2)
+                Tip(cb, _(tip))
+
+    # ------------------------------------------------------------ mode
+    def set_mode(self, mode: str) -> None:
+        self.var_mode.set(mode if mode in ("single", "batch") else "single")
+        self._apply_mode()
+
+    def _show_tab(self, tab, show: bool) -> None:
+        try:
+            hidden = str(self.nb.tab(tab, "state")) == "hidden"
+        except Exception:  # noqa: BLE001
+            hidden = False
+        if show and hidden:
+            self.nb.add(tab)                     # tab tersembunyi kembali ke posisinya semula
+        elif not show and not hidden:
+            self.nb.hide(tab)
+
+    def _apply_mode(self) -> None:
+        """Satu project: baris Project + tab comp/plugin/font/footage/efek. Banyak project: daftar batch.
+        Tab Log ada di kedua mode."""
+        batch = self._on_batch_tab()
+        for tab in self.single_tabs:
+            self._show_tab(tab, not batch)
+        self._show_tab(self.batch_tab, batch)
+        for w in (self.lbl_aep, self.ent_aep, self.btn_aep):
+            try:
+                if batch:
+                    w.grid_remove()
+                else:
+                    w.grid()
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            if batch:
+                self.nb.select(self.batch_tab)
+            elif str(self.nb.select()) == str(self.batch_tab):
+                self.nb.select(self.single_tabs[0])
+        except Exception:  # noqa: BLE001
+            pass
         self._sync_action_buttons()
 
     def _layout_bottom(self) -> None:
@@ -753,14 +891,12 @@ class App:
             self.progress.pack(side="right", padx=(10, 4), before=self.status_label)
 
     def _sync_action_buttons(self, _event=None) -> None:
-        """Label tombol bawah mengikuti tab: "Analisa/Collect" (satu project) atau
-        "Analisa semua/Collect semua" (daftar Batch)."""
+        """Label tombol bawah mengikuti mode: "Analisa/Collect" (satu project) atau
+        "Analisa semua/Collect semua" (semua project di daftar batch)."""
         batch = self._on_batch_tab()
         try:
             self.btn_analyze.configure(text=_("Analisa semua") if batch else _("Analisa"))
             self.btn_collect.configure(text=_("Collect semua") if batch else _("Collect"))
-            for w in (self.ent_aep, self.btn_aep):      # kolom Project tidak dipakai di tab Batch
-                w.configure(state="disabled" if batch else "normal")
         except Exception:  # noqa: BLE001 - jendela sedang dibangun ulang
             return
         hints = (_(SINGLE_HINT), _(BATCH_HINT))
@@ -899,8 +1035,13 @@ class App:
         """Klik dua kali / klik kanan pada baris tabel."""
         for name, info in (("plugin", self.plugin_tree), ("font", self.font_tree), ("foot", self.foot_tree)):
             info.tree.bind("<Double-1>", lambda e, n=name, t=info.tree: self._reveal_row(n, t.identify_row(e.y)))
-        self.batch_tree.tree.bind("<Double-1>", lambda e: self._batch_double(self.batch_tree.tree.identify_row(e.y)))
-        self.batch_tree.tree.bind("<Button-2>" if sys.platform == "darwin" else "<Button-3>", self._batch_menu)
+        bt = self.batch_tree.tree
+        bt.bind("<Button-1>", self._batch_click, add="+")
+        bt.bind("<space>", self._batch_space, add="+")
+        bt.bind("<Double-1>", lambda e: self._batch_double(bt.identify_row(e.y)))
+        bt.bind("<Button-2>" if sys.platform == "darwin" else "<Button-3>", self._batch_menu)
+        bt.bind("<<TreeviewOpen>>", lambda _e: self.batch_expanded.add(bt.focus()), add="+")
+        bt.bind("<<TreeviewClose>>", lambda _e: self.batch_expanded.discard(bt.focus()), add="+")
 
     def _message(self, kind: str, text: str) -> bool:
         """Kotak pesan (kind: showinfo / showwarning / showerror / askyesno). Dengan tema Sun Valley
@@ -1123,10 +1264,6 @@ class App:
                 self.plugin_tree.set(iid, val)
             self._update_plugin_total()
         self._refresh_batch()
-        if self.batch_run is not None:
-            for i, it in enumerate(self.batch_run.items):
-                self.batch_tree.set_row(str(i), self._batch_values(it.path, it.scope, it.status_text, it.result_name),
-                                        tags=(BATCH_TAG.get(it.status, "muted"),))
         if log_text:
             self._log(log_text, end="")
         self.nb.select(tab)
@@ -1251,8 +1388,9 @@ class App:
         return False
 
     def _on_batch_tab(self) -> bool:
+        """Sedang di mode banyak project (batch)?"""
         try:
-            return str(self.nb.select()) == str(self.batch_tab)
+            return self.var_mode.get() == "batch"
         except Exception:  # noqa: BLE001
             return False
 
@@ -1272,16 +1410,101 @@ class App:
         else:
             self.add_batch_paths(aeps + dirs)
 
-    def _batch_values(self, path: Path, scope: str = "", status: Optional[str] = None, result: str = "") -> list:
-        return [path.name, str(path.parent), scope, _("menunggu") if status is None else status, result]
+    # ------------------------------------------------- daftar batch
+    @property
+    def batch_paths(self) -> List[Path]:
+        return [e.path for e in self.batch_entries]
+
+    def _new_entry(self, path) -> BatchEntry:
+        self._batch_seq += 1
+        return BatchEntry(Path(path), "p%d" % self._batch_seq)
+
+    def _entry_for(self, iid: str) -> Optional[BatchEntry]:
+        """Project untuk baris ini (baris project "p3" atau baris comp "p3/17")."""
+        key = (iid or "").split("/", 1)[0]
+        for e in self.batch_entries:
+            if e.iid == key:
+                return e
+        return None
+
+    def _selected_entries(self) -> List[BatchEntry]:
+        out: List[BatchEntry] = []
+        for iid in self.batch_tree.tree.selection():
+            e = self._entry_for(iid)
+            if e is not None and e not in out:
+                out.append(e)
+        return out
+
+    def _entry_label(self, e: BatchEntry) -> str:
+        return {"on": CHECK_ON, "off": CHECK_OFF, "part": CHECK_PART}[e.state()] + e.path.name
+
+    def _comp_summary(self, e: BatchEntry) -> str:
+        """Isi kolom Comp untuk satu project: comp yang dicentang."""
+        if e.error and e.comps is None:
+            return _("gagal dibaca")
+        if e.comps is None:
+            if e.excluded or e.pending == "none":
+                return _("tidak ada (dilewati)")
+            return {"rq": _("Render Queue"), "active": _("comp aktif"),
+                    "all": _("semua comp")}.get(e.pending, _("membaca comp..."))
+        n, k = len(e.comps), len(e.checked)
+        if k == 0:
+            return _("tidak ada (dilewati)")
+        if k == n:
+            return _("semua comp (%d)") % n
+        names = [c[1] for c in e.comps if c[0] in e.checked]
+        return ", ".join(names) if k <= 2 else _("%d dari %d comp") % (k, n)
+
+    @staticmethod
+    def _comp_info(in_rq: bool, active: bool, users: int) -> str:
+        notes = []
+        if in_rq:
+            notes.append(_("Render Queue"))
+        if active:
+            notes.append(_("comp aktif"))
+        if users:
+            notes.append(_("precomp di %d comp") % users)
+        return "; ".join(notes)
+
+    def _entry_result(self, i: int):
+        """(status, hasil, tag warna) project ke-i: dari batch terakhir, atau yang sedang berjalan."""
+        if self.batch_run is not None and i < len(self.batch_run.items):
+            it = self.batch_run.items[i]
+            return it.status_text, it.result_name, BATCH_TAG.get(it.status, "muted")
+        if i in self.batch_live:
+            return self.batch_live[i]
+        return _("menunggu"), "", ""
 
     def _refresh_batch(self) -> None:
+        """Bangun ulang seluruh daftar batch (project + comp-nya)."""
         self.batch_tree.clear()
-        for i, p in enumerate(self.batch_paths):
-            self.batch_tree.add(self._batch_values(p), iid=str(i), tags=("muted",))
-        n = len(self.batch_paths)
+        tree = self.batch_tree.tree
+        for e in self.batch_entries:
+            tree.insert("", "end", iid=e.iid, text=self._entry_label(e), open=e.iid in self.batch_expanded)
+            self._render_entry(e)
+        self.batch_tree._sync_empty()
+        n = len(self.batch_entries)
         self.batch_count.configure(text=(_("%d project") % n) if n else "")
         self._set_tab_count(5, n or None)
+
+    def _render_entry(self, e: BatchEntry) -> None:
+        """Perbarui baris project ini dan baris comp di bawahnya."""
+        if e not in self.batch_entries:
+            return
+        tree = self.batch_tree.tree
+        status, result, tag = self._entry_result(self.batch_entries.index(e))
+        tree.item(e.iid, text=self._entry_label(e), values=[self._comp_summary(e), status, result],
+                  tags=(tag,) if tag else ())
+        self.batch_tree.tips[e.iid] = str(e.path) + ("\n" + e.error if e.error else "")
+        existing = set(tree.get_children(e.iid))
+        for cid, name, in_rq, active, users in e.comps or []:
+            ciid = "%s/%d" % (e.iid, cid)
+            text = (CHECK_ON if cid in e.checked else CHECK_OFF) + name
+            if ciid in existing:
+                tree.item(ciid, text=text)
+            else:
+                tree.insert(e.iid, "end", iid=ciid, text=text, values=[self._comp_info(in_rq, active, users), "", ""],
+                            tags=("run",) if in_rq else ())
 
     def add_batch_paths(self, paths) -> int:
         if self._busy_now():
@@ -1289,12 +1512,14 @@ class App:
         from .batch import find_projects
         found = find_projects(paths)
         known = {os.path.normcase(os.path.abspath(str(p))) for p in self.batch_paths}
-        new = [p for p in found if os.path.normcase(os.path.abspath(str(p))) not in known]
-        self.batch_paths.extend(new)
+        new = [self._new_entry(p) for p in found if os.path.normcase(os.path.abspath(str(p))) not in known]
+        self.batch_entries.extend(new)
         self.batch_run = None
+        self.batch_live.clear()
         self._refresh_batch()
-        self.nb.select(self.batch_tab)
-        if not self.var_dest.get().strip() and self.batch_paths:
+        self.set_mode("batch")
+        self._queue_comp_scan(new)
+        if not self.var_dest.get().strip() and self.batch_entries:
             try:
                 self.var_dest.set(os.path.commonpath([str(p.parent) for p in self.batch_paths]))
             except ValueError:
@@ -1302,7 +1527,7 @@ class App:
         if not found:
             self.var_status.set(_("Tidak ada file .aep yang ditemukan."))
         else:
-            self.var_status.set(_("%d project ditambahkan ke daftar batch (total %d).") % (len(new), len(self.batch_paths)))
+            self.var_status.set(_("%d project ditambahkan ke daftar batch (total %d).") % (len(new), len(self.batch_entries)))
         return len(new)
 
     def batch_add_files(self) -> None:
@@ -1322,26 +1547,134 @@ class App:
     def batch_remove_selected(self) -> None:
         if self._busy_now():
             return
-        sel = {int(i) for i in self.batch_tree.tree.selection()}
-        self.batch_paths = [p for i, p in enumerate(self.batch_paths) if i not in sel]
+        sel = self._selected_entries()
+        if not sel:
+            return
+        self.batch_entries = [e for e in self.batch_entries if e not in sel]
         self.batch_run = None
+        self.batch_live.clear()
         self._refresh_batch()
 
     def batch_clear(self) -> None:
         if self._busy_now():
             return
-        self.batch_paths = []
+        self.batch_entries = []
         self.batch_run = None
+        self.batch_live.clear()
         self._refresh_batch()
 
-    def _batch_item(self, iid: str):
-        """Hasil batch untuk baris ini (urutan baris = urutan project saat batch dijalankan)."""
-        if self.batch_run is None or not iid:
+    # ---------------------------------------------- centang comp per project
+    def _batch_click(self, event):
+        """Klik di kolom pertama: centang comp, atau semua comp project itu (baris project)."""
+        tree = self.batch_tree.tree
+        if tree.identify_region(event.x, event.y) not in ("tree", "cell") or tree.identify_column(event.x) != "#0":
             return None
         try:
-            return self.batch_run.items[int(iid)]
-        except (ValueError, IndexError):
+            element = str(tree.identify_element(event.x, event.y))
+        except Exception:  # noqa: BLE001
+            element = ""
+        if "indicator" in element:                 # panah buka/tutup daftar comp
             return None
+        iid = tree.identify_row(event.y)
+        if iid and not self.is_busy:
+            self._batch_toggle(iid)
+        return None
+
+    def _batch_space(self, _event=None) -> str:
+        if not self.is_busy:
+            for iid in self.batch_tree.tree.selection():
+                self._batch_toggle(iid)
+        return "break"
+
+    def _batch_toggle(self, iid: str) -> None:
+        e = self._entry_for(iid)
+        if e is None:
+            return
+        if "/" in iid:
+            e.checked ^= {int(iid.split("/", 1)[1])}
+        elif e.comps is None:                      # comp belum terbaca: ikut / lewati project ini
+            e.excluded, e.pending = e.state() == "on", ""
+        else:
+            e.checked = set() if e.state() == "on" else {c[0] for c in e.comps}
+        self._render_entry(e)
+
+    def batch_select(self, mode: str) -> None:
+        """Pilihan cepat (rq / active / all / none) untuk project yang dipilih, atau semua project."""
+        if self.is_busy:
+            return
+        unchanged = 0
+        for e in self._selected_entries() or list(self.batch_entries):
+            if e.comps is None:
+                e.pending, e.excluded = mode, mode == "none"
+            else:
+                ids = e.mode_ids(mode)
+                if ids is None:
+                    unchanged += 1
+                    continue
+                e.checked = ids
+            self._render_entry(e)
+        if unchanged:
+            self.var_status.set(_("Pilihan tidak diubah di %d project: tidak ada comp yang cocok.") % unchanged)
+
+    def _queue_comp_scan(self, entries) -> None:
+        """Baca daftar comp project-project ini di thread latar (jendela tetap bisa dipakai)."""
+        with self._scan_lock:
+            for e in entries:
+                self._scan_queue.put((e.iid, e.path))
+            if self._scan_thread is None and entries:
+                self._scan_thread = threading.Thread(target=self._scan_loop, name="batch-comps", daemon=True)
+                self._scan_thread.start()
+
+    def _scan_loop(self) -> None:
+        from .batch import _short_error
+        from .project import AepProject
+        while True:
+            with self._scan_lock:
+                try:
+                    iid, path = self._scan_queue.get_nowait()
+                except queue.Empty:
+                    self._scan_thread = None
+                    return
+            try:
+                aep = AepProject(path)
+                rq = {int(c.id) for c in aep.rq_comps()}
+                act = aep.active_comp()
+                users = aep.precomp_users()
+                _kind, roots = aep.default_roots()
+                comps = [(int(c.id), str(c.name), int(c.id) in rq, act is not None and c.id == act.id,
+                          int(users.get(c.id, 0))) for c in aep.comps]
+                payload = (comps, {int(c.id) for c in roots}, "")
+            except Exception as exc:  # noqa: BLE001 - file rusak: dilaporkan di baris project-nya
+                payload = (None, set(), _short_error(exc))
+            self.events.put(("batch-comps", iid, payload))
+
+    def _on_batch_comps(self, iid: str, payload) -> None:
+        e = self._entry_for(iid)
+        if e is None:
+            return
+        comps, default, error = payload
+        if comps is None:
+            e.error = error
+        else:
+            e.comps, e.default, e.error = comps, set(default), ""
+            if e.excluded or e.pending == "none":
+                e.checked = set()
+            elif e.pending in ("rq", "active", "all"):
+                ids = e.mode_ids(e.pending)
+                e.checked = ids if ids is not None else set(default)
+            else:
+                e.checked = set(default)             # pilihan awal: Render Queue > comp aktif > semua
+            e.pending, e.excluded = "", False
+        self._render_entry(e)
+
+    # ------------------------------------------------- hasil batch
+    def _batch_item(self, iid: str):
+        """Hasil batch terakhir untuk project di baris ini."""
+        e = self._entry_for(iid)
+        if self.batch_run is None or e is None:
+            return None
+        i = self.batch_entries.index(e)
+        return self.batch_run.items[i] if i < len(self.batch_run.items) else None
 
     def batch_open(self, iid: str, report: bool = False) -> None:
         it = self._batch_item(iid)
@@ -1353,27 +1686,27 @@ class App:
             open_folder(it.result.dest_root)
 
     def _batch_double(self, iid: str) -> None:
-        """Klik dua kali: sudah di-collect -> buka folder hasil, belum -> lihat detail analisanya."""
+        """Klik dua kali baris project: sudah di-collect -> buka folder hasil, belum -> lihat analisanya."""
+        if not iid or "/" in iid:
+            return
         it = self._batch_item(iid)
         if it is not None and it.result is not None:
             self.batch_open(iid)
-        elif iid:
+        else:
             self.batch_show(iid)
 
     def batch_show(self, iid: str) -> None:
-        """Buka project dari daftar batch di tab 1-5 dan analisa (comp dipilih sama seperti batch)."""
-        try:
-            path = self.batch_paths[int(iid)]
-        except (ValueError, IndexError):
-            return
-        if self._busy_now():
+        """Buka project dari daftar batch di mode satu project dan analisa comp yang dicentang."""
+        e = self._entry_for(iid)
+        if e is None or self._busy_now():
             return
         self.analysis = None
-        self._run("open-analyze", self._job_open_analyze, (path, self._base_options(), self.var_batch_scope.get()))
+        self._run("open-analyze", self._job_open_analyze, (e.path, self._base_options(), e.scope() or "auto"))
 
     def _batch_menu(self, event) -> None:
         iid = self.batch_tree.tree.identify_row(event.y)
-        if not iid:
+        e = self._entry_for(iid)
+        if e is None:
             return
         self.batch_tree.tree.selection_set([iid])
         it = self._batch_item(iid)
@@ -1386,11 +1719,11 @@ class App:
         if self.theme_name or not self.native_menus:
             theme.style_menu(menu, self.theme_name == "dark")
         menu.delete(0, "end")
-        menu.add_command(label=_("Lihat detail analisa"), command=lambda: self.batch_show(iid),
+        menu.add_command(label=_("Lihat detail analisa"), command=lambda: self.batch_show(e.iid),
                          state="disabled" if self._busy_now(quiet=True) else "normal")
         menu.add_separator()
-        menu.add_command(label=_("Buka folder hasil"), command=lambda: self.batch_open(iid), state=state)
-        menu.add_command(label=_("Buka laporan"), command=lambda: self.batch_open(iid, report=True), state=state)
+        menu.add_command(label=_("Buka folder hasil"), command=lambda: self.batch_open(e.iid), state=state)
+        menu.add_command(label=_("Buka laporan"), command=lambda: self.batch_open(e.iid, report=True), state=state)
         menu.add_separator()
         menu.add_command(label=_("Hapus dari daftar"), command=self.batch_remove_selected)
         try:
@@ -1398,68 +1731,71 @@ class App:
         finally:
             menu.grab_release()
 
-    def start_batch(self) -> None:
+    def _batch_start_checks(self) -> bool:
         if self._busy_now():
-            return
-        if not self.batch_paths:
+            return False
+        if not self.batch_entries:
             self._message("showwarning", _("Daftar batch masih kosong. Klik \"Tambah file .aep...\" atau "
                                                 "drag file .aep ke jendela ini."))
+            return False
+        if not any(e.scope() for e in self.batch_entries):
+            self._message("showwarning", _("Belum ada comp yang dicentang."))
+            return False
+        return True
+
+    def _start_batch_job(self, kind: str, job) -> None:
+        opt = self._base_options()
+        self._save_settings(None)
+        scopes = [e.scope() for e in self.batch_entries]
+        self.batch_run = None
+        self.batch_live.clear()
+        self._refresh_batch()
+        self.batch_total = len(self.batch_entries)
+        self._run(kind, job, (list(self.batch_paths), opt, scopes), determinate=True)
+
+    def start_batch(self) -> None:
+        """Collect semua project di daftar batch (comp yang dicentang per project)."""
+        if not self._batch_start_checks():
             return
         if not self.var_dest.get().strip():
             self._message("showwarning", _("Pilih folder tujuan dulu."))
             return
-        opt = self._base_options()
-        self._save_settings(None)
-        paths = list(self.batch_paths)
-        for i, p in enumerate(paths):
-            self.batch_tree.set_row(str(i), self._batch_values(p), tags=("muted",))
-        self.batch_total = len(paths)
-        self._run("batch", self._job_batch, (paths, opt, self.var_batch_scope.get()), determinate=True)
-
-    def _job_batch(self, arg):
-        from .batch import collect_many
-        paths, opt, scope = arg
-        return collect_many(paths, opt, scope, progress=self._progress, cancel=self.cancel,
-                            on_item=self._batch_item_event)
-
-    def _batch_item_event(self, i: int, it) -> None:
-        self.events.put(("item", it.status, (i, self._batch_values(it.path, it.scope, it.status_text,
-                                                                      it.result_name))))
+        self._start_batch_job("batch", self._job_batch)
 
     def start_batch_analyze(self) -> None:
         """Analisa semua project di daftar batch (tidak ada yang dicopy)."""
-        if self._busy_now():
-            return
-        if not self.batch_paths:
-            self._message("showwarning", _("Daftar batch masih kosong. Klik \"Tambah file .aep...\" atau "
-                                                "drag file .aep ke jendela ini."))
-            return
-        opt = self._base_options()
-        self._save_settings(None)
-        paths = list(self.batch_paths)
-        for i, p in enumerate(paths):
-            self.batch_tree.set_row(str(i), self._batch_values(p), tags=("muted",))
-        self.batch_total = len(paths)
-        self._run("batch-analyze", self._job_batch_analyze, (paths, opt, self.var_batch_scope.get()),
-                  determinate=True)
+        if self._batch_start_checks():
+            self._start_batch_job("batch-analyze", self._job_batch_analyze)
+
+    def _job_batch(self, arg):
+        from .batch import collect_many
+        paths, opt, scopes = arg
+        return collect_many(paths, opt, "auto", progress=self._progress, cancel=self.cancel,
+                            on_item=self._batch_item_event, scopes=scopes)
 
     def _job_batch_analyze(self, arg):
         from .batch import analyze_many
-        paths, opt, scope = arg
-        return analyze_many(paths, opt, scope, progress=self._progress, cancel=self.cancel,
-                            on_item=self._batch_item_event)
+        paths, opt, scopes = arg
+        return analyze_many(paths, opt, "auto", progress=self._progress, cancel=self.cancel,
+                            on_item=self._batch_item_event, scopes=scopes)
+
+    def _batch_item_event(self, i: int, it) -> None:
+        self.events.put(("item", it.status, (i, it.status_text, it.result_name)))
 
     def _job_open_analyze(self, arg):
         import dataclasses
 
-        from .batch import scope_parts
+        from .batch import ids_parts, scope_parts
         from .collector import analyze
         from .project import AepProject
         path, base, scope = arg
         self._progress(_("Membaca %s ...") % Path(path).name)
         aep = AepProject(path)
         try:
-            ids, _kind, _names, _n = scope_parts(aep, scope)
+            if isinstance(scope, str):
+                ids, _kind, _names, _n = scope_parts(aep, scope)
+            else:
+                ids, _kind, _names, _n = ids_parts(aep, scope)
         except ValueError:
             ids = None
         if ids is not None and set(ids) == {c.id for c in aep.comps}:
@@ -1561,10 +1897,14 @@ class App:
                 elif ev == "fraction":
                     self.progress.configure(value=max(0.0, min(100.0, payload * 100)))
                 elif ev == "item":
-                    i, values = payload
-                    self.batch_tree.set_row(str(i), values, tags=(BATCH_TAG.get(kind, "muted"),))
+                    i, status_text, result = payload
+                    self.batch_live[i] = (status_text, result, BATCH_TAG.get(kind, "muted"))
+                    if i < len(self.batch_entries):
+                        self._render_entry(self.batch_entries[i])
                     if kind != "jalan" and self.batch_total:
                         self.progress.configure(value=100.0 * (i + 1) / self.batch_total)
+                elif ev == "batch-comps":
+                    self._on_batch_comps(kind, payload)
                 elif ev == "drop":
                     self.on_drop(payload)
                 elif ev == "update-check":
@@ -1637,6 +1977,7 @@ class App:
             self.nb.select(1 if self.analysis.candidates else 3)
         elif kind == "open-analyze":
             path, aep, an, key = payload
+            self.set_mode("single")
             self.var_aep.set(str(path))
             self.settings["aep_dir"] = str(Path(path).parent)
             self.aep, self.aep_stale = aep, False
@@ -1827,7 +2168,6 @@ class App:
         s["skip_disabled"] = self.opt_skip_off.get()
         s["support_files"] = self.opt_support.get()
         s["presets"] = self.opt_presets.get()
-        s["batch_scope"] = self.var_batch_scope.get()
         s["check_updates"] = self.var_auto_update.get()
         s["theme"] = self.var_theme.get()
         try:

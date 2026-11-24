@@ -2,11 +2,13 @@ Collect Files for After Effects **without opening After Effects**: the footage, 
 
 ### What's new in 1.3.0
 
+- **Batch is its own mode.** Switch between **Single project** and **Many projects (batch)** at the top. The batch list no longer sits between the project tabs (Plugins, Fonts, Footage, All effects); in batch mode you see the project list, the collect options and the Log.
+- **Choose the comps for each project.** Click the arrow next to a project to see its comps and tick the ones to collect. Ticking the project row ticks or unticks all of its comps, and a project with nothing ticked is skipped. New projects start with their Render Queue comps ticked (otherwise the active comp, otherwise all comps). The **Select comps** buttons (Render Queue, Active comp, All, Clear) change the selected projects, or every project.
 - **Cleaner window.** The long explanations above the Comps, Plugins and Batch lists are gone. Tabs have short names without numbers: Comps & options, Plugins, Fonts, Footage, All effects, Batch, Log.
 - **Short options with tooltips.** The options are split into **What to collect** (Footage, Fonts, Plugins) and **Options** (Reduce Project, Skip effects that are off, Plugin support files, Animation presets). Hover over an option to see what it does.
 - **Plugins tab:** a simple **Sure / Guess** column replaces the technical "Found via" column. Hover over a row for the full path and how the plugin was found. The All effects tab no longer repeats the effect type.
 - **Helpful empty lists:** an empty list tells you what to do next, for example "Drag an .aep file here", "Click Analyze", or that an option is turned off.
-- **Bottom bar shows only what you can use:** Cancel and the progress bar appear only while something is running, and **Open output folder** appears once there is a result. The Project field is greyed out on the Batch tab, where it is not used.
+- **Bottom bar shows only what you can use:** Cancel and the progress bar appear only while something is running, and **Open output folder** appears once there is a result. The Project field is hidden in batch mode, where it is not used.
 
 ### What's new in 1.2.0
 

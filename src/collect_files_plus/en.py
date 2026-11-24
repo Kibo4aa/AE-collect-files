@@ -149,7 +149,6 @@ EN = {
     "Jenis": "Type",
     "Dipakai": "Used",
     "Project": "Project",
-    "Lokasi": "Location",
     "Comp": "Comp",
     "Hasil": "Result",
     "Analisa semua": "Analyze all",
@@ -214,8 +213,6 @@ EN = {
     "Tambah file .aep...": "Add .aep files...",
     "Tambah folder...": "Add folder...",
     "Hapus yang dipilih": "Remove selected",
-    "Comp yang dibaca:": "Comps to read:",
-    "Semua comp": "All comps",
     "Project After Effects": "After Effects project",
     "Semua file": "All files",
     "%d project": "%d project(s)",
@@ -512,7 +509,6 @@ EN = {
     "Kecocokan": "Match",
     "Pasti": "Sure",
     "Perkiraan": "Guess",
-    "Otomatis": "Automatic",
     "Reduce Project": "Reduce Project",
     "Lewati efek yang dimatikan": "Skip effects that are off",
     "File pendukung plugin": "Plugin support files",
@@ -543,6 +539,23 @@ EN = {
         "Also copy the DLLs and data files in the same folder as the plugin file.",
     "Ikut copy animation preset (.ffx) yang namanya sama dengan efek yang di-rename.":
         "Also copy animation presets (.ffx) named like renamed effects.",
-    "Comp di Render Queue. Kalau kosong, comp yang aktif saat project disimpan. Kalau tidak ada, semua comp.":
-        "The comps in the Render Queue. If it is empty, the comp that was active when the project was saved. If there is none, all comps.",
+    # --- 1.3.0: mode batch + pilih comp per project
+    "Satu project": "Single project",
+    "Banyak project (batch)": "Many projects (batch)",
+    "Pilih comp:": "Select comps:",
+    "Hapus semua": "Remove all",
+    "gagal dibaca": "could not be read",
+    "tidak ada (dilewati)": "none (skipped)",
+    "membaca comp...": "reading comps...",
+    "%d dari %d comp": "%d of %d comps",
+    "Belum ada comp yang dicentang.": "No comps are ticked.",
+    "Pilihan tidak diubah di %d project: tidak ada comp yang cocok.":
+        "Selection unchanged in %d project(s): no matching comp.",
+    "dilewati: tidak ada comp yang dicentang": "skipped: no comps ticked",
+    "[DILEWATI]": "[SKIPPED]",
+    "%d dilewati": "%d skipped",
+    "Comp yang dicentang tidak ada lagi di project ini.":
+        "The ticked comps are no longer in this project.",
+    "Comp yang dicentang otomatis saat project dibuka: comp di Render Queue. Kalau kosong, comp yang aktif saat project disimpan. Kalau tidak ada, semua comp.":
+        "Ticked automatically when a project is opened: the comps in the Render Queue. If it is empty, the comp that was active when the project was saved. If there is none, all comps.",
 }

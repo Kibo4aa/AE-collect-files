@@ -153,7 +153,6 @@ JA = {
     "Jenis": "種類",
     "Dipakai": "使用数",
     "Project": "プロジェクト",
-    "Lokasi": "場所",
     "Comp": "コンポ",
     "Hasil": "結果",
     "Analisa semua": "すべて分析",
@@ -218,8 +217,6 @@ JA = {
     "Tambah file .aep...": ".aep ファイルを追加...",
     "Tambah folder...": "フォルダーを追加...",
     "Hapus yang dipilih": "選択した項目を削除",
-    "Comp yang dibaca:": "読み込むコンポ:",
-    "Semua comp": "すべてのコンポ",
     "Project After Effects": "After Effects プロジェクト",
     "Semua file": "すべてのファイル",
     "%d project": "%d プロジェクト",
@@ -520,7 +517,6 @@ JA = {
     "Kecocokan": "一致",
     "Pasti": "確実",
     "Perkiraan": "推定",
-    "Otomatis": "自動",
     "Reduce Project": "プロジェクトを整理",
     "Lewati efek yang dimatikan": "オフのエフェクトはスキップ",
     "File pendukung plugin": "プラグインの付属ファイル",
@@ -550,6 +546,22 @@ JA = {
         "プラグインファイルと同じフォルダーにある DLL やデータファイルもコピーします。",
     "Ikut copy animation preset (.ffx) yang namanya sama dengan efek yang di-rename.":
         "名前を変更したエフェクトと同じ名前のアニメーションプリセット (.ffx) もコピーします。",
-    "Comp di Render Queue. Kalau kosong, comp yang aktif saat project disimpan. Kalau tidak ada, semua comp.":
-        "レンダーキューのコンポ。空の場合はプロジェクト保存時のアクティブなコンポ、それもない場合はすべてのコンポ。",
+    # --- 1.3.0: mode batch + pilih comp per project
+    "Satu project": "単一プロジェクト",
+    "Banyak project (batch)": "複数プロジェクト (バッチ)",
+    "Pilih comp:": "コンポを選択:",
+    "Hapus semua": "すべて削除",
+    "gagal dibaca": "読み込めません",
+    "tidak ada (dilewati)": "なし (スキップ)",
+    "membaca comp...": "コンポを読み込み中...",
+    "%d dari %d comp": "%d / %d コンポ",
+    "Belum ada comp yang dicentang.": "チェックされたコンポがありません。",
+    "Pilihan tidak diubah di %d project: tidak ada comp yang cocok.":
+        "%d 個のプロジェクトでは選択を変更していません: 該当するコンポがありません。",
+    "dilewati: tidak ada comp yang dicentang": "スキップ: チェックされたコンポがありません",
+    "[DILEWATI]": "[スキップ]",
+    "%d dilewati": "スキップ %d",
+    "Comp yang dicentang tidak ada lagi di project ini.": "チェックしたコンポはこのプロジェクトにもうありません。",
+    "Comp yang dicentang otomatis saat project dibuka: comp di Render Queue. Kalau kosong, comp yang aktif saat project disimpan. Kalau tidak ada, semua comp.":
+        "プロジェクトを開いたときに自動でチェックされるコンポ: レンダーキューのコンポ。空の場合はプロジェクト保存時のアクティブなコンポ、それもない場合はすべてのコンポ。",
 }

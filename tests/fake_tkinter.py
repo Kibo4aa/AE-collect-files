@@ -59,7 +59,10 @@ def build():
             return out
 
         def grid(self, **kw):
-            pass
+            self.gridded = True
+
+        def grid_remove(self):
+            self.gridded = False
 
         def columnconfigure(self, *a, **kw):
             pass
@@ -161,12 +164,16 @@ def build():
             return self.content  # seperti Tk: get("1.0", "end-1c") = semua teks yang dimasukkan
 
     class Treeview(Widget):
+        """Treeview: baris bisa bertingkat (parent -> anak), urutan disimpan seperti Tk."""
+
         def __init__(self, master=None, columns=(), height=10, selectmode=None, show=None, **kw):
             super().__init__(master, **kw)
             self.items = {}
+            self.kids = {"": []}
             self._sel = ()
             self._n = 0
             self.row_at = None
+            self.element_at = "text"
 
         def heading(self, col, text="", **kw):
             self.headings = getattr(self, "headings", {})
@@ -181,11 +188,13 @@ def build():
         def yview(self, *a):
             pass
 
-        def insert(self, parent, index, iid=None, text="", values=(), tags=()):
+        def insert(self, parent, index, iid=None, text="", values=(), tags=(), **kw):
             if iid is None:
                 self._n += 1
                 iid = "I%03d" % self._n
-            self.items[iid] = {"text": text, "values": list(values), "tags": tuple(tags)}
+            self.items[iid] = {"text": text, "values": list(values), "tags": tuple(tags), "parent": parent, **kw}
+            self.kids.setdefault(parent, []).append(iid)
+            self.kids.setdefault(iid, [])
             return iid
 
         def tag_configure(self, tag, **kw):
@@ -194,10 +203,22 @@ def build():
 
         def delete(self, *iids):
             for i in iids:
-                self.items.pop(i, None)
+                if i not in self.items:
+                    continue
+                self.delete(*list(self.kids.get(i, [])))
+                parent = self.items.pop(i)["parent"]
+                if i in self.kids.get(parent, []):
+                    self.kids[parent].remove(i)
+                self.kids.pop(i, None)
 
         def get_children(self, item=""):
-            return tuple(self.items.keys())
+            return tuple(self.kids.get(item, []))
+
+        def exists(self, iid):
+            return iid in self.items
+
+        def parent(self, iid):
+            return self.items[iid]["parent"]
 
         def item(self, iid, option=None, **kw):
             if kw:
@@ -212,11 +233,17 @@ def build():
         def selection_set(self, items):
             self._sel = tuple(items)
 
+        def focus(self, item=None):
+            return self._sel[0] if self._sel else ""
+
         def identify_region(self, x, y):
             return "tree"
 
         def identify_column(self, x):
             return "#0"
+
+        def identify_element(self, x, y):
+            return self.element_at
 
         def identify_row(self, y):
             return self.row_at or ""
@@ -225,10 +252,22 @@ def build():
         def __init__(self, master=None, **kw):
             super().__init__(master, **kw)
             self.tabs = []
+            self.hidden = set()
             self.selected = 0
 
         def add(self, child, text=""):
+            """Seperti Tk: tab yang disembunyikan muncul lagi di posisinya semula."""
+            for c, _t in self.tabs:
+                if c is child:
+                    self.hidden.discard(id(child))
+                    return
             self.tabs.append((child, text))
+
+        def hide(self, child):
+            self.hidden.add(id(child))
+
+        def visible_texts(self):
+            return [t for c, t in self.tabs if id(c) not in self.hidden]
 
         def select(self, idx=None):
             """Seperti Tk: yang dikembalikan selalu widget tab (bukan nomor). Ganti tab memicu
@@ -255,6 +294,8 @@ def build():
                 self.tabs[i] = (self.tabs[i][0], kw["text"])
             if option == "text":
                 return self.tabs[i][1]
+            if option == "state":
+                return "hidden" if id(self.tabs[i][0]) in self.hidden else "normal"
             return {"text": self.tabs[i][1]}
 
         def tab_texts(self):

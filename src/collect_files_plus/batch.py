@@ -15,7 +15,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from . import __version__
 from . import collector as _collector
@@ -41,6 +41,7 @@ STATUS_LABEL = {
     "catatan": N_("OK, ada catatan"),
     "gagal": N_("GAGAL"),
     "dibatalkan": N_("dibatalkan"),
+    "dilewati": N_("dilewati: tidak ada comp yang dicentang"),
 }
 
 # catatan per project disimpan sebagai angka, teksnya dibuat saat ditampilkan (ikut bahasa)
@@ -117,6 +118,18 @@ def scope_parts(aep: AepProject, mode: str = "auto",
     return [c.id for c in roots], kind, [c.name for c in roots], n
 
 
+def ids_parts(aep: AepProject, ids: Iterable[int]) -> Tuple[Optional[List[int]], str, List[str], int]:
+    """Seperti scope_parts, untuk comp yang dicentang sendiri (id comp). Semua comp -> None."""
+    wanted = set(ids)
+    roots = [c for c in aep.comps if c.id in wanted]
+    n = len(aep.comps)
+    if not roots:
+        raise ValueError(_("Comp yang dicentang tidak ada lagi di project ini."))
+    if len(roots) == n:
+        return None, "all", [], n
+    return [c.id for c in roots], "names", [c.name for c in roots], n
+
+
 def scope_label(kind: str, names: Sequence[str], n_comps: int) -> str:
     if not kind:
         return ""
@@ -139,7 +152,7 @@ def resolve_scope(aep: AepProject, mode: str = "auto",
 @dataclass
 class BatchItem:
     path: Path
-    status: str = "menunggu"            # menunggu / jalan / ok / catatan / gagal / dibatalkan
+    status: str = "menunggu"            # menunggu / jalan / ok / catatan / gagal / dibatalkan / dilewati
     scope_kind: str = ""
     scope_names: List[str] = field(default_factory=list)
     n_comps: int = 0
@@ -200,6 +213,8 @@ class BatchRun:
             parts.append(_("%d gagal") % self.count("gagal"))
         if self.count("dibatalkan", "menunggu"):
             parts.append(_("%d tidak diproses") % self.count("dibatalkan", "menunggu"))
+        if self.count("dilewati"):
+            parts.append(_("%d dilewati") % self.count("dilewati"))
         return _("%s (dari %d project)") % (", ".join(parts), len(self.items))
 
 
@@ -247,10 +262,14 @@ def prepare_env(env: Optional[Environment] = None) -> Environment:
     return env
 
 
+#: Pilihan comp untuk satu project: mode (auto/rq/active/all) atau daftar id comp (kosong = dilewati).
+Scope = Union[str, Sequence[int]]
+
+
 def _run_many(paths: Sequence, options: Options, scope: str, comp_names: Sequence[str],
               env: Optional[Environment], progress: Optional[ProgressFn], cancel: Optional[threading.Event],
               on_item: Optional[Callable[[int, BatchItem], None]], include_guesses: bool,
-              do_collect: bool) -> BatchRun:
+              do_collect: bool, scopes: Optional[Sequence[Scope]] = None) -> BatchRun:
     env = prepare_env(env)
     run = BatchRun([BatchItem(Path(p)) for p in paths], Path(options.dest_dir), scope,
                    kind="collect" if do_collect else "analyze")
@@ -263,6 +282,11 @@ def _run_many(paths: Sequence, options: Options, scope: str, comp_names: Sequenc
     for i, it in enumerate(run.items):
         if cancel is not None and cancel.is_set():
             break
+        spec: Scope = scopes[i] if scopes is not None and i < len(scopes) else scope
+        if not isinstance(spec, str) and not list(spec):
+            it.status = "dilewati"          # tidak ada comp yang dicentang di project ini
+            emit(i)
+            continue
         it.status = "jalan"
         emit(i)
         prefix = "[%d/%d] %s: " % (i + 1, total, it.path.name)
@@ -271,7 +295,10 @@ def _run_many(paths: Sequence, options: Options, scope: str, comp_names: Sequenc
             if sub is not None:
                 sub(_("Membaca project..."))
             aep = AepProject(it.path)
-            comp_ids, it.scope_kind, it.scope_names, it.n_comps = scope_parts(aep, scope, comp_names)
+            if isinstance(spec, str):
+                comp_ids, it.scope_kind, it.scope_names, it.n_comps = scope_parts(aep, spec, comp_names)
+            else:
+                comp_ids, it.scope_kind, it.scope_names, it.n_comps = ids_parts(aep, spec)
             opt = dataclasses.replace(options, comp_ids=comp_ids, scope_label="")
             an = analyze(aep, opt, env, progress=sub, cancel=cancel)
             if include_guesses:
@@ -311,11 +338,14 @@ def collect_many(paths: Sequence, options: Options, scope: str = "auto", comp_na
                  env: Optional[Environment] = None, progress: Optional[ProgressFn] = None,
                  cancel: Optional[threading.Event] = None,
                  on_item: Optional[Callable[[int, BatchItem], None]] = None,
-                 include_guesses: bool = False, write_summary: bool = True) -> BatchRun:
+                 include_guesses: bool = False, write_summary: bool = True,
+                 scopes: Optional[Sequence[Scope]] = None) -> BatchRun:
     """Collect setiap project ke ``options.dest_dir``. ``options.comp_ids`` diabaikan:
-    comp tiap project dipilih dengan ``scope`` (lihat resolve_scope)."""
-    run = _run_many(paths, options, scope, comp_names, env, progress, cancel, on_item, include_guesses, True)
-    if write_summary and any(it.status != "dibatalkan" for it in run.items):
+    comp tiap project dipilih dengan ``scope`` (lihat resolve_scope), atau per project lewat
+    ``scopes`` (mode atau daftar id comp; daftar kosong = project dilewati)."""
+    run = _run_many(paths, options, scope, comp_names, env, progress, cancel, on_item, include_guesses, True,
+                    scopes)
+    if write_summary and any(it.status not in ("dibatalkan", "dilewati") for it in run.items):
         try:
             run.summary = write_batch_summary(run)
         except OSError:
@@ -327,10 +357,11 @@ def analyze_many(paths: Sequence, options: Options, scope: str = "auto", comp_na
                  env: Optional[Environment] = None, progress: Optional[ProgressFn] = None,
                  cancel: Optional[threading.Event] = None,
                  on_item: Optional[Callable[[int, BatchItem], None]] = None,
-                 include_guesses: bool = False) -> BatchRun:
+                 include_guesses: bool = False, scopes: Optional[Sequence[Scope]] = None) -> BatchRun:
     """Analisa setiap project tanpa menyalin apa pun: yang perlu dicek (footage hilang, font,
     plugin yang tidak ketemu) dan perkiraan ukuran hasil collect-nya."""
-    return _run_many(paths, options, scope, comp_names, env, progress, cancel, on_item, include_guesses, False)
+    return _run_many(paths, options, scope, comp_names, env, progress, cancel, on_item, include_guesses, False,
+                     scopes)
 
 
 def write_batch_summary(run: BatchRun) -> Path:
@@ -341,7 +372,7 @@ def write_batch_summary(run: BatchRun) -> Path:
         path = run.dest / ("CollectFilesPlus_batch_%s (%d).txt" % (time.strftime("%Y%m%d-%H%M%S"), n))
         n += 1
     tag = {"ok": "[OK]", "catatan": _("[CATATAN]"), "gagal": _("[GAGAL]"), "dibatalkan": _("[DIBATALKAN]"),
-           "menunggu": _("[DIBATALKAN]"), "jalan": "[?]"}
+           "menunggu": _("[DIBATALKAN]"), "jalan": "[?]", "dilewati": _("[DILEWATI]")}
     lines = [
         _("Collect Files Plus %s - ringkasan batch") % __version__,
         _("Tanggal : %s") % time.strftime("%Y-%m-%d %H:%M"),

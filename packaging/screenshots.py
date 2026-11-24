@@ -75,11 +75,22 @@ def main() -> int:
 
     def settle(seconds=0.6):
         end = time.time() + seconds
-        while time.time() < end or (app.worker is not None and app.worker.is_alive()):
+        while (time.time() < end or (app.worker is not None and app.worker.is_alive())
+               or app._scan_thread is not None):
             root.update()
             app._poll()
             time.sleep(0.03)
         root.update()
+
+    def open_comps(index, untick=None):
+        """Buka daftar comp project ke-index di daftar batch (seperti klik panah); opsional hapus satu centang."""
+        settle()
+        entry = app.batch_entries[index]
+        app.batch_expanded.add(entry.iid)
+        app.batch_tree.tree.item(entry.iid, open=True)
+        if untick is not None:
+            app._batch_toggle(app.batch_tree.tree.get_children(entry.iid)[untick])
+        settle(0.2)
 
     def shot(name):
         settle()
@@ -211,9 +222,9 @@ def main() -> int:
 
     settle()
     shot("01-start-en")
-    app.nb.select(app.batch_tab)
+    app.set_mode("batch")
     shot("01-start-en-batch-empty")
-    app.nb.select(0)
+    app.set_mode("single")
     app.var_aep.set(str(fx))
     app.load_project()
     settle()
@@ -225,7 +236,9 @@ def main() -> int:
             app.nb.select(tab)
             shot("light-en-%d-%s" % (tab + 1, label))
         app.add_batch_paths([str(fx), str(other)])
+        open_comps(1, untick=2)
         shot("light-en-batch")
+        app.set_mode("single")
         app.change_language("ja")
         app.nb.select(0)
         shot("light-ja-1-comps")
@@ -259,15 +272,20 @@ def main() -> int:
     app.var_theme.set("light")
     app.change_theme()
     app.add_batch_paths([str(fx), str(other)])
-    app.start_analyze()                    # tab Batch aktif: tombol bawah = "Analyze all"
+    open_comps(1, untick=2)                # project kedua: comp ketiga tidak dicentang
+    shot("light-en-batch-comps")
+    app.start_analyze()                    # mode batch: tombol bawah = "Analyze all"
     settle()
     shot("light-en-batch-analyze")
-    app.start_collect()                    # tab Batch aktif: tombol bawah = "Collect all"
+    app.start_collect()                    # mode batch: tombol bawah = "Collect all"
     settle()
     shot("light-en-batch")
     app.var_theme.set("dark")
     app.change_theme()
     shot("dark-en-batch")
+    app.change_language("ja")
+    shot("dark-ja-batch")
+    app.change_language("en")
     app.update_info = updater.UpdateInfo("9.9.0", "v9.9.0", "p", asset_url="u")
     app._show_update_bar()
     shot("dark-en-update-bar")

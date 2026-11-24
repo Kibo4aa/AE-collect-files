@@ -106,6 +106,33 @@ def test_analyze_many_copies_nothing(tmp_path: Path):
     assert not dest.exists()                                 # analisa tidak menulis apa pun
 
 
+def test_per_project_comp_selection(tmp_path: Path):
+    """Comp dipilih per project (centang di GUI): daftar id, mode, atau kosong = dilewati."""
+    p1 = make_project(tmp_path / "A")
+    p2 = make_project(tmp_path / "B")
+    p3 = make_project(tmp_path / "C")
+    p4 = make_project(tmp_path / "D")
+    ids = {c.name: c.id for c in AepProject(p1).comps}
+    dest = tmp_path / "out"
+    run = collect_many([p1, p2, p3, p4], Options(dest_dir=dest, reduce_project=True), env=env_for(tmp_path),
+                       scopes=[[ids["Main"]], [], "all", [99999]])
+    assert [it.status for it in run.items] == ["catatan", "dilewati", "catatan", "gagal"]
+    assert run.items[0].scope == "comp: Main" and run.items[2].scope == "semua comp (3)"
+    assert "tidak ada lagi" in run.items[3].error
+    assert run.items[1].status_text == "dilewati: tidak ada comp yang dicentang"
+    assert run.headline() == "0 OK, 2 ada catatan, 1 gagal, 1 dilewati (dari 4 project)"
+    # Reduce Project ikut pilihan comp: Template (dengan musik) tidak ikut di project A
+    a = AepProject(run.items[0].result.project_out)
+    assert sorted(c.name for c in a.comps) == ["Main", "Precomp Logo"]
+    assert sorted(d.name for d in dest.iterdir() if d.is_dir()) == ["Proyek Saya_Collected",
+                                                                     "Proyek Saya_Collected (2)"]
+    assert "[DILEWATI]" in run.summary.read_text(encoding="utf-8")
+    # semua comp dicentang satu per satu = semua comp
+    every = [c.id for c in AepProject(p1).comps]
+    run2 = analyze_many([p1], Options(dest_dir=dest), env=env_for(tmp_path), scopes=[every])
+    assert run2.items[0].scope == "semua comp (3)"
+
+
 def test_note_counts_guesses():
     """Plugin perkiraan: setelah collect = "tidak dicopy", saat analisa saja = "perlu dicek"."""
     from types import SimpleNamespace
