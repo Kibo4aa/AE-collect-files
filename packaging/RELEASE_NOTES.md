@@ -1,5 +1,13 @@
 Collect Files for After Effects **without opening After Effects**: the footage, fonts and plugin files a project actually uses are gathered into one folder.
 
+### What's new in 1.3.0
+
+- **Cleaner window.** The long explanations above the Comps, Plugins and Batch lists are gone. Tabs have short names without numbers: Comps & options, Plugins, Fonts, Footage, All effects, Batch, Log.
+- **Short options with tooltips.** The options are split into **What to collect** (Footage, Fonts, Plugins) and **Options** (Reduce Project, Skip effects that are off, Plugin support files, Animation presets). Hover over an option to see what it does.
+- **Plugins tab:** a simple **Sure / Guess** column replaces the technical "Found via" column. Hover over a row for the full path and how the plugin was found. The All effects tab no longer repeats the effect type.
+- **Helpful empty lists:** an empty list tells you what to do next, for example "Drag an .aep file here", "Click Analyze", or that an option is turned off.
+- **Bottom bar shows only what you can use:** Cancel and the progress bar appear only while something is running, and **Open output folder** appears once there is a result. The Project field is greyed out on the Batch tab, where it is not used.
+
 ### What's new in 1.2.0
 
 - **Batch tab: one set of buttons.** While the Batch tab is open, the buttons at the bottom become **Analyze all** and **Collect all** and work on the whole list. The extra "Collect all projects" button inside the tab is gone, so there is only one Collect button.

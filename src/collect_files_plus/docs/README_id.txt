@@ -12,8 +12,9 @@ MULAI CEPAT
 -----------
 1. Buka Collect Files Plus.
 2. Drag file .aep ke jendela aplikasi (atau File > Buka project...).
-3. Tab "1. Comp & opsi": centang comp utama yang kamu render.
-   Precomp di dalamnya ikut dibaca otomatis.
+3. Tab "Comp & opsi": centang comp utama yang kamu render.
+   Precomp di dalamnya ikut dibaca otomatis. Arahkan kursor ke sebuah opsi
+   di kanan untuk melihat penjelasannya.
 4. Klik Analisa (F5), lalu cek tab Plugin, Font, dan Footage.
    Hapus centang file plugin yang tidak ingin dicopy.
 5. Pilih folder tujuan, lalu klik Collect (Ctrl+Enter).
@@ -23,7 +24,7 @@ MULAI CEPAT
 BANYAK PROJECT SEKALIGUS (BATCH)
 --------------------------------
 - Drag beberapa file .aep, atau satu folder, ke jendela aplikasi. Semuanya
-  masuk ke tab "Batch (banyak project)".
+  masuk ke tab "Batch".
 - Selama tab Batch terbuka, tombol di bawah berlaku untuk seluruh daftar:
   "Analisa semua" (F5) mengecek semua project tanpa menyalin apa pun,
   "Collect semua" (Ctrl+Enter) meng-collect semuanya.

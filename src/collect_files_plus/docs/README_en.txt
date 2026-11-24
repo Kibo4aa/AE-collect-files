@@ -12,8 +12,9 @@ QUICK START
 -----------
 1. Open Collect Files Plus.
 2. Drag an .aep file onto the window (or File > Open project...).
-3. Tab "1. Comps & options": tick the main comps you render.
-   Precomps inside them are included automatically.
+3. Tab "Comps & options": tick the main comps you render.
+   Precomps inside them are included automatically. Hover over an option
+   on the right to see what it does.
 4. Click Analyze (F5), then check the Plugins, Fonts and Footage tabs.
    Untick any plugin file you don't want to copy.
 5. Choose a destination folder and click Collect (Ctrl+Enter).
@@ -23,7 +24,7 @@ QUICK START
 MANY PROJECTS AT ONCE (BATCH)
 -----------------------------
 - Drag several .aep files, or a folder, onto the window. They are added to
-  the "Batch (many projects)" tab.
+  the "Batch" tab.
 - While the Batch tab is open, the buttons at the bottom work on the whole
   list: "Analyze all" (F5) checks every project without copying anything,
   "Collect all" (Ctrl+Enter) collects them.

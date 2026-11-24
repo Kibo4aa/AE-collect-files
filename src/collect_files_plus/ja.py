@@ -138,35 +138,20 @@ JA = {
 
     # -------------------------------------------------------------------- gui
     "Pilih file .aep untuk mulai.": ".aep ファイルを選んで始めましょう。",
-    "1. Comp & opsi": "1. コンポとオプション",
     "Keterangan": "情報",
     "Yang dikumpulkan": "収集する項目",
-    "Footage\n(copy + relink ke folder (Footage))": "フッテージ\n(コピーして (Footage) フォルダーに再リンク)",
-    "Buang comp & footage yang tidak dipakai\n(Reduce Project)": "未使用のコンポとフッテージを削除\n(プロジェクトを整理)",
-    "Font yang dipakai text layer": "テキストレイヤーで使われているフォント",
-    "Plugin pihak ketiga\n(hanya file plugin yang efeknya dipakai)":
-        "サードパーティ製プラグイン\n(使われているエフェクトを含むファイルだけ)",
-    "Lewati efek yang dimatikan\n(ikon fx mati)": "オフのエフェクトはスキップ\n(fx スイッチがオフ)",
-    "Ikut file pendukung plugin\n(DLL/data di folder yang sama)": "プラグインの付属ファイルも含める\n(同じフォルダーの DLL/データ)",
-    "Ikut animation preset (.ffx) yang\nnamanya sama dengan efek yang di-rename":
-        "アニメーションプリセット (.ffx) も含める\n(名前を変更したエフェクトと同名のもの)",
-    "2. Plugin": "2. プラグイン",
     "File plugin": "プラグインファイル",
     "Efek yang dipakai": "使われているエフェクト",
     "Ukuran": "サイズ",
     "Cara ketemu": "検出方法",
-    "3. Font": "3. フォント",
-    "Font (PostScript)": "フォント (PostScript)",
     "File": "ファイル",
     "Status": "状態",
     "Item": "アイテム",
-    "5. Semua efek": "5. すべてのエフェクト",
     "Efek": "エフェクト",
     "Nama di layer": "レイヤー上の名前",
     "Match name": "マッチネーム",
     "Jenis": "種類",
     "Dipakai": "使用数",
-    "Batch (banyak project)": "バッチ (複数プロジェクト)",
     "Project": "プロジェクト",
     "Lokasi": "場所",
     "Comp": "コンポ",
@@ -216,7 +201,6 @@ JA = {
         "分析が完了しました。プラグイン/フォント/フッテージのタブを確認して「収集」をクリックしてください。",
     "Pilihan awal: %s.": "最初の選択: %s。",
     "  (+%d efek lain di file ini)": "  (このファイルにはほかに %d 個のエフェクト)",
-    "(perkiraan) ": "(推定) ",
     "TIDAK KETEMU: ": "見つからない: ",
     "Adobe Fonts (aktifkan di CC)": "Adobe Fonts (CC でアクティベート)",
     "tidak terinstall di sini": "このパソコンにありません",
@@ -224,32 +208,17 @@ JA = {
     "dimatikan (dilewati)": "オフ (スキップ)",
     "Analisa: %d efek (%d plugin pihak ketiga), %d file plugin, %d font, %d footage.":
         "分析: エフェクト %d (サードパーティ製プラグイン %d)、プラグインファイル %d、フォント %d、フッテージ %d。",
-    "%d dari %d file plugin dicentang, total %s": "%d / %d 個のプラグインファイルにチェック、合計 %s",
     "Pilih...": "参照...",
     "Folder tujuan": "保存先フォルダー",
-    "Centang comp utama yang dipakai. Precomp di dalamnya ikut dibaca otomatis.":
-        "使うメインのコンポにチェックを入れてください。中のプリコンポは自動で読み込まれます。",
     "Comp aktif": "アクティブなコンポ",
     "Semua": "すべて",
     "Kosongkan": "クリア",
-    'File plugin yang akan dicopy. Klik kotak centang untuk memilih. "(perkiraan)" = tidak dicentang otomatis.':
-        "コピーするプラグインファイルです。チェックボックスをクリックして選びます。「(推定)」は自動ではチェックされません。",
     "Centang semua": "すべてチェック",
     "Hapus semua centang": "すべてのチェックを外す",
-    'Analisa atau collect banyak project sekaligus dengan tombol di bawah. Hasil collect masuk ke "Folder tujuan" '
-    'di atas, tiap project ke folder <nama>_Collected sendiri.\nOpsi yang dicentang di tab "1. Comp & opsi" '
-    'dipakai untuk semua project. Klik kanan sebuah project untuk melihat detail analisanya. File .aep atau folder '
-    'juga bisa di-drag ke jendela ini.':
-        "下のボタンで複数のプロジェクトをまとめて分析・収集します。収集結果は上の「保存先フォルダー」に入り、"
-        "プロジェクトごとに <名前>_Collected フォルダーが作られます。\n「1. コンポとオプション」タブのオプションが"
-        "すべてのプロジェクトに使われます。プロジェクトを右クリックすると分析の詳細を確認できます。.aep ファイルや"
-        "フォルダーをこのウィンドウにドラッグすることもできます。",
     "Tambah file .aep...": ".aep ファイルを追加...",
     "Tambah folder...": "フォルダーを追加...",
     "Hapus yang dipilih": "選択した項目を削除",
     "Comp yang dibaca:": "読み込むコンポ:",
-    "Otomatis (Render Queue, kalau kosong comp aktif, kalau tidak ada semua comp)":
-        "自動 (レンダーキュー、空ならアクティブなコンポ、それもなければすべて)",
     "Semua comp": "すべてのコンポ",
     "Project After Effects": "After Effects プロジェクト",
     "Semua file": "すべてのファイル",
@@ -270,13 +239,9 @@ JA = {
         ".aep ファイルを読み込めません:\n%s\n\nとても新しいバージョンの After Effects で作ったプロジェクトなら、"
         "After Effects の中から JSX スクリプト (jsx フォルダー) を使ってみてください。",
     "Terjadi error:\n%s\n\nDetail ada di tab Log.": "エラーが発生しました:\n%s\n\n詳しくは「ログ」タブを見てください。",
-    "Project (.aep)": "プロジェクト (.aep)",
-    "4. Footage": "4. フッテージ",
     "Log": "ログ",
     "Collect": "収集",
     "Error.": "エラー。",
-    'Drag file .aep ke jendela ini, atau klik "Pilih..." di atas untuk membuka project.':
-        ".aep ファイルをこのウィンドウにドラッグするか、上の「参照...」をクリックしてプロジェクトを開いてください。",
     "Buka project...": "プロジェクトを開く...",
     "Tambah project ke Batch...": "バッチにプロジェクトを追加...",
     "Tambah folder ke Batch...": "バッチにフォルダーを追加...",
@@ -543,4 +508,48 @@ JA = {
     "Rilis ini tidak punya file untuk sistem ini.": "このリリースには、このシステム用のファイルがありません。",
     "File update rusak (checksum tidak cocok). Coba lagi.": "アップデートファイルが壊れています (チェックサム不一致)。もう一度試してください。",
     "Isi file update tidak valid.": "アップデートファイルの中身が正しくありません。",
+    # --- 1.3.0: tampilan ringkas
+    "Comp & opsi": "コンポとオプション",
+    "Plugin": "プラグイン",
+    "Font": "フォント",
+    "Footage": "フッテージ",
+    "Semua efek": "すべてのエフェクト",
+    "Batch": "バッチ",
+    "Opsi": "オプション",
+    "Pilih:": "選択:",
+    "Kecocokan": "一致",
+    "Pasti": "確実",
+    "Perkiraan": "推定",
+    "Otomatis": "自動",
+    "Reduce Project": "プロジェクトを整理",
+    "Lewati efek yang dimatikan": "オフのエフェクトはスキップ",
+    "File pendukung plugin": "プラグインの付属ファイル",
+    "Preset animasi (.ffx)": "アニメーションプリセット (.ffx)",
+    "Belum ada hasil. Klik Analisa.": "まだ結果はありません。「分析」をクリックしてください。",
+    "Tidak ada plugin pihak ketiga.": "サードパーティ製プラグインはありません。",
+    "Tidak ada font.": "フォントはありません。",
+    "Tidak ada footage.": "フッテージはありません。",
+    "Tidak ada efek.": "エフェクトはありません。",
+    'Tidak dicek: opsi "%s" dimatikan.': "確認していません:「%s」オプションがオフです。",
+    "%d/%d dicentang · %s": "%d/%d チェック · %s",
+    "Project ini tidak punya comp.": "このプロジェクトにはコンポがありません。",
+    'Drag file .aep ke sini\natau klik "Pilih..." di atas': ".aep ファイルをここにドラッグ\nまたは上の「参照...」をクリック",
+    'Drag file .aep atau folder ke sini\natau klik "Tambah file .aep..."':
+        ".aep ファイルやフォルダーをここにドラッグ\nまたは「.aep ファイルを追加...」をクリック",
+    "Copy footage yang dipakai, lalu relink project ke folder (Footage).":
+        "使われているフッテージをコピーし、プロジェクトを (Footage) フォルダーに再リンクします。",
+    "Copy file font yang dipakai text layer. Adobe Fonts tidak dicopy: aktifkan di Creative Cloud.":
+        "テキストレイヤーで使われているフォントファイルをコピーします。Adobe Fonts はコピーされません (Creative Cloud で有効にしてください)。",
+    "Copy file plugin pihak ketiga, hanya yang efeknya dipakai project.":
+        "サードパーティ製プラグインのファイルを、プロジェクトで使われているエフェクトのものだけコピーします。",
+    "Buang comp dan footage yang tidak dipakai comp yang dicentang (seperti File > Reduce Project di After Effects).":
+        "チェックしたコンポで使われていないコンポとフッテージを削除します (After Effects の「プロジェクトを整理」と同じ)。",
+    "Efek dengan ikon fx mati tidak dihitung, jadi pluginnya tidak ikut dicopy.":
+        "fx スイッチがオフのエフェクトは数えないため、そのプラグインはコピーされません。",
+    "Ikut copy DLL dan file data di folder yang sama dengan file plugin.":
+        "プラグインファイルと同じフォルダーにある DLL やデータファイルもコピーします。",
+    "Ikut copy animation preset (.ffx) yang namanya sama dengan efek yang di-rename.":
+        "名前を変更したエフェクトと同じ名前のアニメーションプリセット (.ffx) もコピーします。",
+    "Comp di Render Queue. Kalau kosong, comp yang aktif saat project disimpan. Kalau tidak ada, semua comp.":
+        "レンダーキューのコンポ。空の場合はプロジェクト保存時のアクティブなコンポ、それもない場合はすべてのコンポ。",
 }

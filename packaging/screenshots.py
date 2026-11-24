@@ -42,7 +42,12 @@ def main() -> int:
         pass
 
     import tkinter as tk
-    from tkinter import messagebox
+    from tkinter import messagebox, ttk
+
+    def all_widgets(w):
+        yield w
+        for c in w.winfo_children():
+            yield from all_widgets(c)
 
     from collect_files_plus import collector, dialogs, gui, updater
     from collect_files_plus.plugins import PluginRoot
@@ -166,6 +171,29 @@ def main() -> int:
         print("INPUT-CHECKS", results)
         return results
 
+    def shot_tip(name, widget=None, tree=None, row=None):
+        """Tooltip yang sedang tampil (opsi di panel kanan, atau baris tabel)."""
+        settle()
+        root.lift()
+        root.attributes("-topmost", True)
+        settle(0.3)
+        if tree is not None:
+            bbox = tree.tree.bbox(row, "#0")
+            tree.tip.cell = (row, "#0")
+            tree.tip._show(tree.tree.winfo_rootx() + bbox[0] + 20, tree.tree.winfo_rooty() + bbox[1] + 4)
+            tip_win = tree.tip
+        else:
+            widget.tooltip._show()
+            tip_win = widget.tooltip
+        tip_win.win.attributes("-topmost", True)
+        tip_win.win.lift()
+        settle(0.4)
+        ImageGrab.grab(bbox=window_rect(root), all_screens=True).save(out / (prefix + name + ".png"))
+        print("saved", name)
+        tip_win._hide()
+        root.attributes("-topmost", False)
+        settle(0.2)
+
     def shot_dialog(name, kind, text):
         def capture():
             win = dialogs.current
@@ -183,6 +211,9 @@ def main() -> int:
 
     settle()
     shot("01-start-en")
+    app.nb.select(app.batch_tab)
+    shot("01-start-en-batch-empty")
+    app.nb.select(0)
     app.var_aep.set(str(fx))
     app.load_project()
     settle()
@@ -210,6 +241,11 @@ def main() -> int:
                 shot("%s-%s-%d-%s" % (theme, lang, tab + 1, label))
         app.change_language("en")
         if theme == "dark":
+            app.nb.select(0)
+            footage = [w for w in all_widgets(root) if isinstance(w, ttk.Checkbutton)][0]
+            shot_tip("dark-en-tooltip-option", widget=footage)
+            app.nb.select(1)
+            shot_tip("dark-en-tooltip-plugin", tree=app.plugin_tree, row=app.plugin_tree.tree.get_children()[0])
             input_checks()
         shot_menu("%s-menu-file" % theme, 0)
         shot_menu("%s-menu-settings" % theme, 1, submenu=True)

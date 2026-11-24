@@ -134,35 +134,20 @@ EN = {
 
     # -------------------------------------------------------------------- gui
     "Pilih file .aep untuk mulai.": "Choose an .aep file to start.",
-    "1. Comp & opsi": "1. Comps & options",
     "Keterangan": "Info",
     "Yang dikumpulkan": "What to collect",
-    "Footage\n(copy + relink ke folder (Footage))": "Footage\n(copy + relink to the (Footage) folder)",
-    "Buang comp & footage yang tidak dipakai\n(Reduce Project)": "Remove unused comps & footage\n(Reduce Project)",
-    "Font yang dipakai text layer": "Fonts used by text layers",
-    "Plugin pihak ketiga\n(hanya file plugin yang efeknya dipakai)":
-        "Third-party plugins\n(only plugin files whose effects are used)",
-    "Lewati efek yang dimatikan\n(ikon fx mati)": "Skip effects that are switched off\n(fx off)",
-    "Ikut file pendukung plugin\n(DLL/data di folder yang sama)": "Include plugin support files\n(DLLs/data in the same folder)",
-    "Ikut animation preset (.ffx) yang\nnamanya sama dengan efek yang di-rename":
-        "Include animation presets (.ffx)\nnamed like renamed effects",
-    "2. Plugin": "2. Plugins",
     "File plugin": "Plugin file",
     "Efek yang dipakai": "Effects used",
     "Ukuran": "Size",
     "Cara ketemu": "Found via",
-    "3. Font": "3. Fonts",
-    "Font (PostScript)": "Font (PostScript)",
     "File": "File",
     "Status": "Status",
     "Item": "Item",
-    "5. Semua efek": "5. All effects",
     "Efek": "Effect",
     "Nama di layer": "Name on layer",
     "Match name": "Match name",
     "Jenis": "Type",
     "Dipakai": "Used",
-    "Batch (banyak project)": "Batch (many projects)",
     "Project": "Project",
     "Lokasi": "Location",
     "Comp": "Comp",
@@ -212,7 +197,6 @@ EN = {
         "Analysis done. Check the Plugins/Fonts/Footage tabs, then click Collect.",
     "Pilihan awal: %s.": "Initial selection: %s.",
     "  (+%d efek lain di file ini)": "  (+%d other effect(s) in this file)",
-    "(perkiraan) ": "(guess) ",
     "TIDAK KETEMU: ": "NOT FOUND: ",
     "Adobe Fonts (aktifkan di CC)": "Adobe Fonts (activate in CC)",
     "tidak terinstall di sini": "not installed here",
@@ -220,32 +204,17 @@ EN = {
     "dimatikan (dilewati)": "switched off (skipped)",
     "Analisa: %d efek (%d plugin pihak ketiga), %d file plugin, %d font, %d footage.":
         "Analysis: %d effects (%d third-party plugin), %d plugin files, %d fonts, %d footage.",
-    "%d dari %d file plugin dicentang, total %s": "%d of %d plugin files ticked, total %s",
     "Pilih...": "Browse...",
     "Folder tujuan": "Destination folder",
-    "Centang comp utama yang dipakai. Precomp di dalamnya ikut dibaca otomatis.":
-        "Tick the main comps you use. Precomps inside them are read automatically.",
     "Comp aktif": "Active comp",
     "Semua": "All",
     "Kosongkan": "Clear",
-    'File plugin yang akan dicopy. Klik kotak centang untuk memilih. "(perkiraan)" = tidak dicentang otomatis.':
-        'Plugin files that will be copied. Click a checkbox to choose. "(guess)" = not ticked automatically.',
     "Centang semua": "Tick all",
     "Hapus semua centang": "Untick all",
-    'Analisa atau collect banyak project sekaligus dengan tombol di bawah. Hasil collect masuk ke "Folder tujuan" '
-    'di atas, tiap project ke folder <nama>_Collected sendiri.\nOpsi yang dicentang di tab "1. Comp & opsi" '
-    'dipakai untuk semua project. Klik kanan sebuah project untuk melihat detail analisanya. File .aep atau folder '
-    'juga bisa di-drag ke jendela ini.':
-        'Analyze or collect many projects at once with the buttons below. Collected projects go into the '
-        '"Destination folder" above, each into its own <name>_Collected folder.\nThe options ticked in the '
-        '"1. Comps & options" tab apply to every project. Right-click a project to see its analysis in detail. '
-        'You can also drag .aep files or folders onto this window.',
     "Tambah file .aep...": "Add .aep files...",
     "Tambah folder...": "Add folder...",
     "Hapus yang dipilih": "Remove selected",
     "Comp yang dibaca:": "Comps to read:",
-    "Otomatis (Render Queue, kalau kosong comp aktif, kalau tidak ada semua comp)":
-        "Automatic (Render Queue; if empty, the active comp; if none, all comps)",
     "Semua comp": "All comps",
     "Project After Effects": "After Effects project",
     "Semua file": "All files",
@@ -266,13 +235,9 @@ EN = {
         "The .aep file could not be read:\n%s\n\nIf the project was made with a very new version of After Effects, "
         "try the JSX script (jsx folder) from inside After Effects.",
     "Terjadi error:\n%s\n\nDetail ada di tab Log.": "An error occurred:\n%s\n\nDetails are in the Log tab.",
-    "Project (.aep)": "Project (.aep)",
-    "4. Footage": "4. Footage",
     "Log": "Log",
     "Collect": "Collect",
     "Error.": "Error.",
-    'Drag file .aep ke jendela ini, atau klik "Pilih..." di atas untuk membuka project.':
-        'Drag an .aep file onto this window, or click "Browse..." above to open a project.',
     "Buka project...": "Open project...",
     "Tambah project ke Batch...": "Add projects to Batch...",
     "Tambah folder ke Batch...": "Add folder to Batch...",
@@ -535,4 +500,49 @@ EN = {
     "Rilis ini tidak punya file untuk sistem ini.": "This release has no file for this system.",
     "File update rusak (checksum tidak cocok). Coba lagi.": "The update file is damaged (checksum mismatch). Try again.",
     "Isi file update tidak valid.": "The update file contents are invalid.",
+    # --- 1.3.0: tampilan ringkas
+    "Comp & opsi": "Comps & options",
+    "Plugin": "Plugins",
+    "Font": "Fonts",
+    "Footage": "Footage",
+    "Semua efek": "All effects",
+    "Batch": "Batch",
+    "Opsi": "Options",
+    "Pilih:": "Select:",
+    "Kecocokan": "Match",
+    "Pasti": "Sure",
+    "Perkiraan": "Guess",
+    "Otomatis": "Automatic",
+    "Reduce Project": "Reduce Project",
+    "Lewati efek yang dimatikan": "Skip effects that are off",
+    "File pendukung plugin": "Plugin support files",
+    "Preset animasi (.ffx)": "Animation presets (.ffx)",
+    "Belum ada hasil. Klik Analisa.": "Nothing here yet. Click Analyze.",
+    "Tidak ada plugin pihak ketiga.": "No third-party plugins.",
+    "Tidak ada font.": "No fonts.",
+    "Tidak ada footage.": "No footage.",
+    "Tidak ada efek.": "No effects.",
+    'Tidak dicek: opsi "%s" dimatikan.': 'Not checked: the "%s" option is off.',
+    "%d/%d dicentang · %s": "%d/%d ticked · %s",
+    "Project ini tidak punya comp.": "This project has no comps.",
+    'Drag file .aep ke sini\natau klik "Pilih..." di atas':
+        'Drag an .aep file here\nor click "Browse..." above',
+    'Drag file .aep atau folder ke sini\natau klik "Tambah file .aep..."':
+        'Drag .aep files or folders here\nor click "Add .aep files..."',
+    "Copy footage yang dipakai, lalu relink project ke folder (Footage).":
+        "Copy the footage the project uses and relink the project to the (Footage) folder.",
+    "Copy file font yang dipakai text layer. Adobe Fonts tidak dicopy: aktifkan di Creative Cloud.":
+        "Copy the font files used by text layers. Adobe Fonts are not copied: activate them in Creative Cloud.",
+    "Copy file plugin pihak ketiga, hanya yang efeknya dipakai project.":
+        "Copy third-party plugin files, only those whose effects the project uses.",
+    "Buang comp dan footage yang tidak dipakai comp yang dicentang (seperti File > Reduce Project di After Effects).":
+        "Remove the comps and footage the ticked comps do not use (like File > Reduce Project in After Effects).",
+    "Efek dengan ikon fx mati tidak dihitung, jadi pluginnya tidak ikut dicopy.":
+        "Effects with the fx switch off are ignored, so their plugins are not copied.",
+    "Ikut copy DLL dan file data di folder yang sama dengan file plugin.":
+        "Also copy the DLLs and data files in the same folder as the plugin file.",
+    "Ikut copy animation preset (.ffx) yang namanya sama dengan efek yang di-rename.":
+        "Also copy animation presets (.ffx) named like renamed effects.",
+    "Comp di Render Queue. Kalau kosong, comp yang aktif saat project disimpan. Kalau tidak ada, semua comp.":
+        "The comps in the Render Queue. If it is empty, the comp that was active when the project was saved. If there is none, all comps.",
 }

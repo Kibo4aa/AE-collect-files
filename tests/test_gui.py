@@ -100,7 +100,7 @@ def test_gui_plugin_checkboxes(gui, tmp_path, monkeypatch):
     app.plugin_tree.tree.row_at = deep
     app.plugin_tree._click(type("E", (), {"x": 1, "y": 1})())
     assert app.plugin_tree.checked[deep] is False
-    assert "2 dari 3 file plugin dicentang" in app.plugin_total.kw["text"]
+    assert app.plugin_total.kw["text"].startswith("2/3 dicentang · ")
 
     app.start_collect()
     _finish(app)
@@ -263,12 +263,11 @@ def test_gui_switch_language_keeps_state(gui, tmp_path, monkeypatch):
     old_menu = app.menubar
     _choose_language(app, root, "English")
     assert i18n.get_language() == "en" and app.nb is not old_nb and old_nb.destroyed and old_menu.destroyed
-    assert app.nb.tab_texts()[:3] == ["1. Comps & options", "2. Plugins (3)", "3. Fonts (1)"]
+    assert app.nb.tab_texts()[:3] == ["Comps & options", "Plugins (3)", "Fonts (1)"]
     assert [e["label"] for e in app.menubar.entries] == ["File", "Settings", "Help"]
     assert app.plugin_tree.checked[kaca] is False                 # centang tetap
     assert all(app.comp_tree.checked.values())
-    assert app.plugin_total.kw["text"] == "2 of 3 plugin files ticked, total %s" % \
-        app.plugin_total.kw["text"].split("total ")[1]
+    assert app.plugin_total.kw["text"] == "2/3 ticked · %s" % app.plugin_total.kw["text"].split("· ")[1]
     assert app.batch_tree.tree.items["0"]["values"][3] == "waiting"
     assert "Membuka" in app.log.get("1.0", "end-1c")             # isi log lama tetap ada
     assert app.var_status.get() == "Language changed to English."
@@ -289,7 +288,7 @@ def test_gui_switch_language_keeps_state(gui, tmp_path, monkeypatch):
     assert (app.result.dest_root / "Efek_effect_list.csv").is_file()
 
     _choose_language(app, root, "Bahasa Indonesia")
-    assert i18n.get_language() == "id" and app.nb.tab_texts()[0] == "1. Comp & opsi"
+    assert i18n.get_language() == "id" and app.nb.tab_texts()[0] == "Comp & opsi"
     assert [e["label"] for e in app.menubar.entries] == ["File", "Pengaturan", "Bantuan"]
 
 
@@ -308,7 +307,7 @@ def test_gui_language_defaults(gui, tmp_path, monkeypatch):
     monkeypatch.setenv(i18n.ENV_VAR, "ja")
     (tmp_path / "settings.json").unlink()
     app = gui.App(mods["tkinter"].Tk())               # Windows berbahasa Jepang -> 日本語
-    assert i18n.get_language() == "ja" and app.nb.tab_texts()[0] == "1. コンポとオプション"
+    assert i18n.get_language() == "ja" and app.nb.tab_texts()[0] == "コンポとオプション"
 
 
 def test_gui_menus_help_and_theme(gui, tmp_path, monkeypatch):
@@ -426,11 +425,12 @@ def test_gui_tab_counts_reveal_and_lazy_reload(gui, tmp_path, monkeypatch):
     monkeypatch.setattr(project, "AepProject", lambda p: loads.append(p) or real(p))
     root = mods["tkinter"].Tk()
     app = gui.App(root)
-    assert "Drag file .aep" in app.comp_hint.kw["text"]
+    assert app.comp_tree.empty_text.startswith("Drag file .aep ke sini") and app.comp_tree.empty_label.placed
+    assert app.plugin_tree.empty_text == "Belum ada hasil. Klik Analisa."
     app.var_aep.set(str(make_project(tmp_path)))
     app.load_project()
     _finish(app)
-    assert "Centang comp utama" in app.comp_hint.kw["text"]
+    assert not app.comp_tree.empty_label.placed                 # petunjuk hilang begitu ada comp
     app.var_dest.set(str(tmp_path / "out"))
     app.opt_reduce.set(True)
     first = [i for i, l in app.comp_tree.labels.items() if l == "Main"][0]
@@ -439,7 +439,8 @@ def test_gui_tab_counts_reveal_and_lazy_reload(gui, tmp_path, monkeypatch):
     app.start_analyze()
     _finish(app)
     tabs = app.nb.tab_texts()
-    assert tabs[1] == "2. Plugin (0)" and tabs[2] == "3. Font (1)" and tabs[3].startswith("4. Footage (")
+    assert tabs[1] == "Plugin (0)" and tabs[2] == "Font (1)" and tabs[3].startswith("Footage (")
+    assert app.plugin_tree.empty_text == "Tidak ada plugin pihak ketiga." and app.plugin_tree.empty_label.placed
     rows = app.foot_tree.tree.items
     missing = [i for i, r in rows.items() if r["values"][3] == "HILANG"]
     assert missing and rows[missing[0]]["tags"] == ("error",)
@@ -476,7 +477,7 @@ def test_gui_batch_context_menu_and_progress(gui, tmp_path, monkeypatch):
     root = mods["tkinter"].Tk()
     app = gui.App(root)
     app.add_batch_paths([str(p1), str(p2)])
-    assert app.nb.tab_texts()[5] == "Batch (banyak project) (2)"
+    assert app.nb.tab_texts()[5] == "Batch (2)"
     app.var_dest.set(str(tmp_path / "out"))
     app.start_batch()
     assert app.progress.kw["mode"] == "determinate"
@@ -575,6 +576,66 @@ def test_gui_batch_buttons_analyze_all_and_details(gui, tmp_path, monkeypatch):
     assert any(k == "showerror" and "tidak bisa dibaca" in m for k, m in mods["tkinter.messagebox"].log)
 
 
+def _widgets(w):
+    yield w
+    for c in getattr(w, "children_list", []):
+        yield from _widgets(c)
+
+
+def test_gui_clean_layout(gui, tmp_path, monkeypatch):
+    """Tampilan ringkas: label pendek + tooltip, petunjuk hanya di tabel kosong, tombol bawah hanya
+    yang berguna saat itu."""
+    gui, mods = gui
+    from collect_files_plus import collector
+    mc = make_plugin_tree(tmp_path)
+    env = env_for(tmp_path, plugin_roots=[PluginRoot(mc, "MediaCore", 1)])
+    monkeypatch.setattr(collector, "Environment", lambda: env)
+    root = mods["tkinter"].Tk()
+    app = gui.App(root)
+    assert app.nb.tab_texts() == ["Comp & opsi", "Plugin", "Font", "Footage", "Semua efek", "Batch", "Log"]
+    boxes = {w.kw["text"]: w for w in _widgets(root) if type(w).__name__ == "Checkbutton"}
+    assert list(boxes) == ["Footage", "Font", "Plugin", "Reduce Project", "Lewati efek yang dimatikan",
+                           "File pendukung plugin", "Preset animasi (.ffx)"]
+    assert all("\n" not in t for t in boxes)                       # tidak ada lagi label 2 baris
+    assert "relink" in boxes["Footage"].tooltip.text and "Adobe Fonts" in boxes["Font"].tooltip.text
+    texts = " | ".join(root.all_texts())
+    assert "Centang comp utama" not in texts and "File plugin yang akan dicopy" not in texts
+    # tombol bawah: belum ada proses / hasil -> hanya Analisa & Collect
+    assert not getattr(app.btn_cancel, "packed", False) and not getattr(app.progress, "packed", False)
+    assert not getattr(app.btn_open, "packed", False)
+
+    app.var_aep.set(str(make_fx_project(tmp_path)))
+    app.load_project()
+    assert app.btn_cancel.packed and app.progress.packed         # Batal muncul selama proses
+    _finish(app)
+    assert not app.btn_cancel.packed and not app.progress.packed
+    app.opt_fonts.set(False)
+    app.start_analyze()
+    _finish(app)
+    rows = app.plugin_tree.tree.items
+    assert sorted(r["values"][2] for r in rows.values()) == ["Pasti", "Pasti", "Pasti"]
+    kaca = [i for i, l in app.plugin_tree.labels.items() if l.endswith("Kaca.aex")][0]
+    assert app.plugin_tree.labels[kaca] == "MediaCore/VendorA/Kaca.aex"   # tanpa awalan "(perkiraan)"
+    tip = app.plugin_tree.tip.tip_at(kaca, "#2")
+    assert tip.startswith(str(mc)) and "Cara ketemu: isi file" in tip
+    assert app.font_tree.empty_text == 'Tidak dicek: opsi "Font" dimatikan.'
+    assert app.fx_tree.tree.items and all(len(r["values"]) == 5 for r in app.fx_tree.tree.items.values())
+    assert not getattr(app.btn_open, "packed", False)
+    app.var_dest.set(str(tmp_path / "out"))
+    app.start_collect()
+    _finish(app)
+    assert app.btn_open.packed                                    # sudah ada hasil -> tombol muncul
+
+    # tab Batch: kolom Project tidak dipakai -> dimatikan
+    app.nb.select(app.batch_tab)
+    assert app.ent_aep.kw["state"] == "disabled" and app.btn_aep.kw["state"] == "disabled"
+    assert app.batch_tree.empty_label.placed and "Drag file .aep atau folder" in app.batch_tree.empty_text
+    auto = [w for w in _widgets(root) if type(w).__name__ == "Radiobutton" and w.kw.get("value") == "auto"][0]
+    assert auto.kw["text"] == "Otomatis" and "Render Queue" in auto.tooltip.text
+    app.nb.select(0)
+    assert app.ent_aep.kw["state"] == "normal"
+
+
 def test_gui_japanese_ui_has_no_indonesian(gui, tmp_path, monkeypatch):
     gui, mods = gui
     from collect_files_plus import collector
@@ -594,12 +655,12 @@ def test_gui_japanese_ui_has_no_indonesian(gui, tmp_path, monkeypatch):
     app.change_language("ja")
     texts = root.all_texts()
     assert "すべて分析" in texts and "すべて収集" in texts               # tab Batch aktif
-    assert app.nb.tab_texts() == ["1. コンポとオプション", "2. プラグイン (3)", "3. フォント (1)", "4. フッテージ (0)",
-                                  "5. すべてのエフェクト (7)", "バッチ (複数プロジェクト) (1)", "ログ"]
+    assert app.nb.tab_texts() == ["コンポとオプション", "プラグイン (3)", "フォント (1)", "フッテージ (0)",
+                                  "すべてのエフェクト (7)", "バッチ (1)", "ログ"]
     assert [e["label"] for e in app.menubar.entries] == ["ファイル", "設定", "ヘルプ"]
     values = [str(v) for t in app._trees() for r in t.items.values() for v in [r["text"]] + r["values"]]
     assert _indonesian_words(" | ".join(texts + values)) == []
-    assert app.plugin_total.kw["text"].startswith("3 / 3 個のプラグインファイルにチェック")
+    assert app.plugin_total.kw["text"].startswith("3/3 チェック · ")
 
 
 def _wait_update_event(app, attr="update_info", tries=200):

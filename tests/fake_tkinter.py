@@ -36,6 +36,12 @@ def build():
         def pack_forget(self):
             self.packed = False
 
+        def place(self, **kw):
+            self.placed = True
+
+        def place_forget(self):
+            self.placed = False
+
         def destroy(self):
             self.destroyed = True
             if self.master is not None and self in getattr(self.master, "children_list", []):
@@ -413,6 +419,9 @@ def build():
 
         def configure(self, style, **kw):
             Style.configured.setdefault(style, {}).update(kw)
+
+        def lookup(self, style, option):
+            return Style.configured.get(style, {}).get(option, "")
 
     class PhotoImage:
         def __init__(self, file=None, **kw):
