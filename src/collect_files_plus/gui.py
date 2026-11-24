@@ -568,7 +568,7 @@ class App:
                         value="auto", variable=self.var_batch_scope).pack(side="left", padx=4)
         ttk.Radiobutton(rs, text=_("Semua comp"), value="all", variable=self.var_batch_scope).pack(side="left", padx=4)
         self.batch_tree = InfoTree(tabb, [_("Project"), _("Lokasi"), _("Comp"), _("Status"), _("Hasil")],
-                                   self._w(170, 220, 150, 260, 170), height=8)
+                                   self._w(150, 180, 140, 250, 250), height=8)
         self.batch_tree.pack(fill="both", expand=True, pady=4)
 
         tab6 = ttk.Frame(self.nb, padding=6)
