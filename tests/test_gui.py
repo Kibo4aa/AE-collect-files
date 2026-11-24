@@ -23,6 +23,14 @@ def _scanned(app, timeout=60.0):
     app._poll()
 
 
+def _shows(app, tree, iid, state):
+    """Baris tabel menampilkan kotak centang dengan status ini (gambar tema, atau karakter tanpa tema)."""
+    from collect_files_plus import gui as g
+    if app.check_images:
+        return str(tree.item(iid, "image")[0]) == app.check_images[state]
+    return str(tree.item(iid, "text")).startswith(g.CHECK_MARK[state])
+
+
 def _rows(app):
     """Nilai kolom (Comp, Status, Hasil) tiap baris project di daftar batch."""
     return [app.batch_tree.tree.items[e.iid]["values"] for e in app.batch_entries]
@@ -983,6 +991,8 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
             assert app.theme_name in ("light", "dark")
             assert ttk.Style(root).theme_use().startswith("sun-valley")
             assert str(app.btn_collect.cget("style")) == "Accent.TButton"
+            # kotak centang di tabel = gambar Checkbutton tema (bukan karakter ☑ ☐)
+            assert app.check_images and set(app.check_images) == {"on", "off", "part"}
         assert str(app.log.cget("state")) == "disabled"
         assert int(ttk_rowheight(root)) >= app.px(24)
         app.var_aep.set(str(proj))
@@ -992,7 +1002,7 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         assert len(app.comp_tree.tree.get_children()) == 3
         assert app.comp_tree.empty_label.winfo_manager() == ""      # petunjuk hilang
         first = app.comp_tree.tree.get_children()[0]
-        assert app.comp_tree.tree.item(first, "text").startswith(real_gui.CHECK_ON)
+        assert _shows(app, app.comp_tree.tree, first, "on")
         app.var_dest.set(str(tmp_path / "out"))
         app.start_analyze()
         _finish(app)
@@ -1032,7 +1042,7 @@ def test_real_tk_smoke(real_root, tmp_path, monkeypatch):
         assert app.nb.tab(app.single_tabs[0], "state") == "hidden" and app.ent_aep.winfo_manager() == ""
         app._batch_toggle(kids[0])
         root.update()
-        assert app.batch_tree.tree.item(entry.iid, "text").startswith(real_gui.CHECK_PART)
+        assert _shows(app, app.batch_tree.tree, entry.iid, "part")
         app.set_mode("single")
         root.update()
         assert app.nb.tab(app.batch_tab, "state") == "hidden" and app.ent_aep.winfo_manager() == "grid"

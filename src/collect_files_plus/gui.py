@@ -103,6 +103,31 @@ def docs_dir() -> Path:
     return Path(__file__).resolve().parent / "docs"
 
 
+def check_images(root, theme_name: str) -> Optional[Dict[str, str]]:
+    """Gambar kotak centang tema Sun Valley (sama persis dengan Checkbutton): on / off / part.
+    None tanpa tema: tabel memakai karakter ☑ ☐ ▣."""
+    if not theme_name:
+        return None
+    ns = "sv_dark" if theme_name == "dark" else "sv_light"
+    out: Dict[str, str] = {}
+    try:
+        for state, sprite in (("on", "check-rest"), ("off", "check-unsel-rest"), ("part", "check-tri-rest")):
+            out[state] = str(root.tk.eval("set ::ttk::theme::%s::I(%s)" % (ns, sprite)))
+    except Exception:  # noqa: BLE001 - versi tema lain
+        return None
+    return out
+
+
+CHECK_MARK = {"on": CHECK_ON, "off": CHECK_OFF, "part": CHECK_PART}
+
+
+def check_item(images: Optional[Dict[str, str]], state: str, label: str) -> dict:
+    """Opsi baris tabel (text, image) untuk kotak centang dengan status ini."""
+    if images:
+        return {"text": " " + label, "image": images[state]}
+    return {"text": CHECK_MARK[state] + label}
+
+
 def show_tip(master, text: str, x: int, y: int, wrap: int = 900):
     """Jendela tooltip kecil di dekat (x, y) layar, digeser supaya tetap di dalam jendela aplikasi.
     Ukurannya dihitung dulu selagi tersembunyi: posisi hanya diatur sekali sebelum tampil (Windows
@@ -278,8 +303,9 @@ class EmptyHint:
 class CheckTree(ttk.Frame, EmptyHint):
     """Treeview dengan kotak centang di kolom pertama."""
 
-    def __init__(self, master, columns, widths, height=12):
+    def __init__(self, master, columns, widths, height=12, images: Optional[Dict[str, str]] = None):
         super().__init__(master)
+        self.images = images
         self.tree = ttk.Treeview(self, columns=[c for c in columns[1:]], height=height, selectmode="extended")
         self.tree.heading("#0", text=columns[0], anchor="w")
         self.tree.column("#0", width=widths[0], minwidth=60, anchor="w", stretch=True)
@@ -315,18 +341,21 @@ class CheckTree(ttk.Frame, EmptyHint):
         self.checkable[iid] = checkable
         if tip:
             self.tips[iid] = tip
-        self.tree.insert("", "end", iid=iid, text=self._text(iid), values=list(values), tags=tuple(tags))
+        self.tree.insert("", "end", iid=iid, values=list(values), tags=tuple(tags), **self._look(iid))
         self._sync_empty()
 
-    def _text(self, iid: str) -> str:
+    def _look(self, iid: str) -> dict:
         if not self.checkable.get(iid, True):
-            return "   " + self.labels[iid]
-        return (CHECK_ON if self.checked[iid] else CHECK_OFF) + self.labels[iid]
+            return {"text": "   " + self.labels[iid]}
+        return check_item(self.images, "on" if self.checked[iid] else "off", self.labels[iid])
+
+    def _text(self, iid: str) -> str:
+        return self._look(iid)["text"]
 
     def set(self, iid: str, value: bool) -> None:
         if iid in self.checked and self.checkable.get(iid, True):
             self.checked[iid] = bool(value)
-            self.tree.item(iid, text=self._text(iid))
+            self.tree.item(iid, **self._look(iid))
 
     def set_all(self, value: bool) -> None:
         for iid in self.checked:
@@ -551,6 +580,7 @@ class App:
         self.var_sendto = tk.BooleanVar(value=sendto.available() and sendto.installed())
 
         self.theme_name = ""
+        self.check_images: Optional[Dict[str, str]] = None
         self.ctx_menu = None
         self.is_busy = False
         self._apply_theme()
@@ -609,6 +639,7 @@ class App:
     def _apply_theme(self) -> None:
         """Tema + font sesuai bahasa + ukuran baris tabel. Dipanggil saat mulai, ganti tema, ganti bahasa."""
         self.theme_name = theme.apply(self.root, self.var_theme.get(), self.scale)
+        self.check_images = check_images(self.root, self.theme_name)
         theme.apply_fonts(self.root, get_language())
         style = ttk.Style(self.root)
         try:  # baris tabel ikut membesar di layar high-DPI dan untuk huruf Jepang
@@ -725,7 +756,8 @@ class App:
         small(row, _("Comp aktif"), lambda: self.select_comps("active"))
         small(row, _("Semua"), lambda: self.comp_tree.set_all(True))
         small(row, _("Kosongkan"), lambda: self.comp_tree.set_all(False))
-        self.comp_tree = CheckTree(left, [_("Comp"), _("Keterangan")], self._w(340, 260), height=8)
+        self.comp_tree = CheckTree(left, [_("Comp"), _("Keterangan")], self._w(340, 260), height=8,
+                                   images=self.check_images)
         self.comp_tree.pack(fill="both", expand=True)
         self._build_options(right)
 
@@ -739,7 +771,7 @@ class App:
         self.plugin_total = ttk.Label(row2, text="")
         self.plugin_total.pack(side="right")
         self.plugin_tree = CheckTree(tab2, [_("File plugin"), _("Efek yang dipakai"), _("Ukuran"), _("Kecocokan")],
-                                     self._w(380, 340, 80, 110), height=8)
+                                     self._w(380, 340, 80, 110), height=8, images=self.check_images)
         self.plugin_tree.pack(fill="both", expand=True)
         self.plugin_tree.on_change = self._update_plugin_total
 
@@ -789,7 +821,7 @@ class App:
         self.batch_count = ttk.Label(rb, text="")
         self.batch_count.pack(side="right")
         self.batch_tree = ProjectTree(left_b, [_("Project"), _("Comp"), _("Status"), _("Hasil")],
-                                      self._w(250, 170, 230, 200), height=8)
+                                      self._w(200, 140, 165, 120), height=8)
         self.batch_tree.pack(fill="both", expand=True)
         self.batch_tree.set_empty_text(_("Drag file .aep atau folder ke sini\natau klik \"Tambah file .aep...\""))
         self.single_tabs = [tab1, tab2, tab3, tab4, tab5]
@@ -1435,8 +1467,11 @@ class App:
                 out.append(e)
         return out
 
+    def _entry_look(self, e: BatchEntry) -> dict:
+        return check_item(self.check_images, e.state(), e.path.name)
+
     def _entry_label(self, e: BatchEntry) -> str:
-        return {"on": CHECK_ON, "off": CHECK_OFF, "part": CHECK_PART}[e.state()] + e.path.name
+        return self._entry_look(e)["text"]
 
     def _comp_summary(self, e: BatchEntry) -> str:
         """Isi kolom Comp untuk satu project: comp yang dicentang."""
@@ -1480,7 +1515,7 @@ class App:
         self.batch_tree.clear()
         tree = self.batch_tree.tree
         for e in self.batch_entries:
-            tree.insert("", "end", iid=e.iid, text=self._entry_label(e), open=e.iid in self.batch_expanded)
+            tree.insert("", "end", iid=e.iid, open=e.iid in self.batch_expanded, **self._entry_look(e))
             self._render_entry(e)
         self.batch_tree._sync_empty()
         n = len(self.batch_entries)
@@ -1493,18 +1528,24 @@ class App:
             return
         tree = self.batch_tree.tree
         status, result, tag = self._entry_result(self.batch_entries.index(e))
-        tree.item(e.iid, text=self._entry_label(e), values=[self._comp_summary(e), status, result],
-                  tags=(tag,) if tag else ())
-        self.batch_tree.tips[e.iid] = str(e.path) + ("\n" + e.error if e.error else "")
+        summary = self._comp_summary(e)
+        tree.item(e.iid, values=[summary, status, result], tags=(tag,) if tag else (), **self._entry_look(e))
+        tip = [str(e.path)]
+        if e.error:
+            tip.append(e.error)
+        elif e.comps:
+            names = [c[1] for c in e.comps if c[0] in e.checked]
+            tip.append("%s: %s" % (_("Comp"), ", ".join(names) if 0 < len(names) < len(e.comps) else summary))
+        self.batch_tree.tips[e.iid] = "\n".join(tip)
         existing = set(tree.get_children(e.iid))
         for cid, name, in_rq, active, users in e.comps or []:
             ciid = "%s/%d" % (e.iid, cid)
-            text = (CHECK_ON if cid in e.checked else CHECK_OFF) + name
+            look = check_item(self.check_images, "on" if cid in e.checked else "off", name)
             if ciid in existing:
-                tree.item(ciid, text=text)
+                tree.item(ciid, **look)
             else:
-                tree.insert(e.iid, "end", iid=ciid, text=text, values=[self._comp_info(in_rq, active, users), "", ""],
-                            tags=("run",) if in_rq else ())
+                tree.insert(e.iid, "end", iid=ciid, values=[self._comp_info(in_rq, active, users), "", ""],
+                            tags=("run",) if in_rq else (), **look)
 
     def add_batch_paths(self, paths) -> int:
         if self._busy_now():
